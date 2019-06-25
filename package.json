@@ -1,0 +1,29 @@
+{
+  "name": "dissolution-item-server",
+  "version": "0.0.1",
+  "private": true,
+  "dependencies": {
+    "aws-sdk": "latest",
+    "babel-polyfill": "^6.26.0",
+    "babel-preset-es2015": "^6.24.1",
+    "babel-preset-stage-0": "^6.24.1",
+    "babel-register": "^6.26.0",
+    "body-parser": "latest",
+    "chai": "^4.2.0",
+    "chai-as-promised": "^7.1.1",
+    "chai-bignumber": "^2.0.2",
+    "cookie-parser": "latest",
+    "dotenv": "^8.0.0",
+    "ejs": "latest",
+    "express": "latest",
+    "jsonwebtoken": "^8.5.1",
+    "jwks-rsa": "^1.5.1",
+    "mysql": "latest",
+    "promise-mysql": "^3.3.2",
+    "request-promise": "^4.2.4",
+    "truffle-hdwallet-provider": "0.0.6"
+  },
+  "scripts": {
+    "start": "node app.js"
+  }
+}
