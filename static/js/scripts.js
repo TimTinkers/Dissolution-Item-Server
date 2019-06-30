@@ -1,33 +1,59 @@
+// Store our access token as a constant.
+var DISSOLUTION_TOKEN;
+
+// A helper function to show an error message on the page.
+function showError (errorMessage) {
+	var errorBox = $('#errorBox');
+	errorBox.html(errorMessage);
+	errorBox.show();
+};
+
+// Refresh the recent user's inventory.
 async function refreshInventory () {
-	console.log('Refreshing inventory ...');
 
-	// Get the user's access token and identity.
-	var dissolutionToken = Cookies.get('dissolutionToken');
-	var inventoryResponse = await $.ajax({
-		url : 'https://api.dissolution.online/core/master/inventory/',
-		headers: { 'Authorization' : 'Bearer ' + dissolutionToken }
-	});
-
-	// Update the list of this player's assets that reside solely on the game database.
-	var updatedListGame = $("<ul id=\"ownedListGame\" style=\"list-style-type:circle\"></ul>");
-	var inventory = inventoryResponse.inventory;
-	for (var i = 0; i < inventory.length; i++) {
-		var item = inventory[i];
-		var itemId = item.itemId;
-		var itemAmount = item.amount;
-
-		var itemMetadataResponse = await $.ajax({
-			url : 'https://api.dissolution.online/core/master/item/' + itemId
+	// Try to retrieve the user's server inventory.
+	try {
+		var inventoryResponse = await $.ajax({
+			url : 'https://api.dissolution.online/core/master/inventory/',
+			headers: { 'Authorization' : 'Bearer ' + DISSOLUTION_TOKEN }
 		});
-		var itemMetadata = itemMetadataResponse.metadata;
 
-		var itemName = itemMetadata.name;
-		var itemImage = itemMetadata.image;
-		var itemDescription = itemMetadata.description;
+		// Update the list of this player's assets that reside solely on the game database.
+		var updatedListGame = $("<ul id=\"ownedListGame\" style=\"list-style-type:circle\"></ul>");
+		var inventory = inventoryResponse.inventory;
+		for (var i = 0; i < inventory.length; i++) {
+			var item = inventory[i];
+			var itemId = item.itemId;
+			var itemAmount = item.amount;
 
-		updatedListGame.append("<li>" + itemAmount + " x (" + itemId + ") " + itemName + ": " + itemDescription + "</li>");
+			// Try to retrieve metadata about each item.
+			try {
+				var itemMetadataResponse = await $.ajax({
+					url : 'https://api.dissolution.online/core/master/item/' + itemId
+				});
+				var itemMetadata = itemMetadataResponse.metadata;
+				var itemName = itemMetadata.name;
+				var itemImage = itemMetadata.image;
+				var itemDescription = itemMetadata.description;
+
+				// Update the actual list for display.
+				updatedListGame.append("<li>" + itemAmount + " x (" + itemId + ") " + itemName + ": " + itemDescription + "</li>");
+
+			// If unable to retrieve an item's metadata, flag such an item.
+			} catch (error) {
+				updatedListGame.append("<li>" + itemAmount + " x (" + itemId + ") - unable to retrieve metadata. </li>");
+			}
+		}
+
+		// Update our list and remove the loading indicator.
+		$("#ownedListGame").html(updatedListGame.html());
+		$('#gameServerSpinner').remove();
+
+	// If we were unable to retrieve the server inventory, throw error.
+	} catch (error) {
+		showError('Unable to retrieve the server inventory.');
+		$("#ownedListGame").html('Unable to retrieve the server inventory.');
 	}
-	$("#ownedListGame").html(updatedListGame.html());
 
 	/*
 	// Update the list of this user's ERC721 assets on the "from" exchange.
@@ -47,6 +73,9 @@ async function refreshInventory () {
 // A function which asynchronously sets up the page.
 var setup = async function (config) {
 	console.log('Setting up page given configuration ...');
+
+	// Get the user's access token and identity.
+	DISSOLUTION_TOKEN = Cookies.get('dissolutionToken');
 
 	/*
 	// Assign functionality to the example mint button.
@@ -104,9 +133,6 @@ var setup = async function (config) {
 };
 
 // Parse the configuration file and pass to setup.
-console.log('Page loaded.');
 $.getJSON("js/config.json", function (config) {
-	console.log('Retrieving configuration ...');
-	console.log(config);
 	setup(config);
 });

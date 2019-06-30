@@ -30,14 +30,26 @@
               Your Assets
             </h2>
 
+            <!-- This section displays items read from the game server. -->
             <div id="ownedTitleGame">
               You own the following game server assets:
+            </div>
+            <div id="gameServerSpinner" class="d-flex justify-content-center">
+              <div class="spinner-border" role="status">
+                <span class="sr-only">Loading...</span>
+              </div>
             </div>
             <ul id="ownedListGame" style="list-style-type:circle">
             </ul>
 
+            <!-- This section displays items read from the blockchain. -->
             <div id="ownedTitleFrom">
               You own the following Enjin ERC-1155 assets:
+            </div>
+            <div id="enjinSpinner" class="d-flex justify-content-center">
+              <div class="spinner-border" role="status">
+                <span class="sr-only">Loading...</span>
+              </div>
             </div>
             <ul id="ownedListFrom" style="list-style-type:circle">
             </ul>
@@ -49,6 +61,10 @@
             -->
 
             <button id="logoutButton">Logout</button>
+          </div>
+
+          <div id="errorBox" class="collapse alert alert-danger" role="alert">
+            This is where we display errors.
           </div>
         </div>
       </div>
