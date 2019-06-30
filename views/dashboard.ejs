@@ -25,6 +25,26 @@
             </h1>
           </div>
 
+          <!-- A panel for displaying the user's profile information. -->
+          <div class="panel panel-default">
+            <h2>
+              Your Profile
+            </h2>
+
+            <!-- This section displays items read from the game server. -->
+            <div id="profileTitle">
+              Your profile data:
+            </div>
+            <div id="profileSpinner" class="d-flex justify-content-center">
+              <div class="spinner-border" role="status">
+                <span class="sr-only">Loading...</span>
+              </div>
+            </div>
+            <ul id="profileInformation" style="list-style-type:circle">
+            </ul>
+          </div>
+
+          <!-- A panel for displaying game assets. -->
           <div class="panel panel-default">
             <h2>
               Your Assets
@@ -43,7 +63,7 @@
             </ul>
 
             <!-- This section displays items read from the blockchain. -->
-            <div id="ownedTitleFrom">
+            <div id="ownedTitleEnjin">
               You own the following Enjin ERC-1155 assets:
             </div>
             <div id="enjinSpinner" class="d-flex justify-content-center">
@@ -51,18 +71,84 @@
                 <span class="sr-only">Loading...</span>
               </div>
             </div>
-            <ul id="ownedListFrom" style="list-style-type:circle">
+            <ul id="ownedListEnjin" style="list-style-type:circle">
             </ul>
 
-            <!--
-            <input id="metadataInput" type="text">
-            <button id="mintButton">Mint New Asset</button>
-            <br />
-            -->
+            <!-- If the user hasn't linked an address, funnel them to Enjin. -->
+            <!-- Login and sign-up tabs. -->
+            <ul class="nav nav-tabs" role="tablist">
+              <li class="active">
+                <a href="#enjin-login" role="tab" data-toggle="tab">
+                  <icon class="fa fa-home"></icon> Login to Enjin
+                </a>
+              </li>
+              <li>
+                <a href="#enjin-sign-up" role="tab" data-toggle="tab">
+                  <i class="fa fa-cog"></i> Sign-up for Enjin
+                </a>
+              </li>
+            </ul>
 
-            <button id="logoutButton">Logout</button>
+            <!-- Enjin login and sign-up panes. -->
+            <div class="tab-content">
+              <div class="tab-pane fade active in" id="enjin-login">
+                <div class="panel panel-default">
+                  <h2>
+                    Log into Enjin here.
+                  </h2>
+                  <br />
+
+                  <form action="/enjin-login" method="post">
+                    Email:
+                    <br />
+                    <input type="text" id="emailInput" name="email">
+                    <br>
+                    Password:
+                    <br />
+                    <input type="password" id="passwordInput" name="password">
+                    <br />
+                    <input type="submit" value="Log into Enjin">
+                  </form>
+                </div>
+              </div>
+
+              <!-- The deployment tab. -->
+              <div class="tab-pane fade" id="enjin-sign-up">
+                <div class="panel panel-default">
+                  <h2>
+                    Sign up for Enjin here.
+                  </h2>
+
+                  <form action="/enjin-sign-up" method="post">
+                    Email:
+                    <br />
+                    <input type="text" id="emailInput" name="email">
+                    <br>
+                    Password:
+                    <br />
+                    <input type="password" id="passwordInput" name="password">
+                    <br />
+                    Confirm Password:
+                    <br />
+                    <input type="password" id="confirmPasswordInput" name="confirmPassword">
+                    <br />
+                    <input type="submit" value="Sign-up for Enjin">
+                  </form>
+                </div>
+              </div>
+            </div>
           </div>
 
+          <!--
+          <input id="metadataInput" type="text">
+          <button id="mintButton">Mint New Asset</button>
+          <br />
+          -->
+
+          <!-- A button that logs the user out. -->
+          <button id="logoutButton">Logout</button>
+
+          <!-- An alert for the most-recent error to be displayed. -->
           <div id="errorBox" class="collapse alert alert-danger" role="alert">
             This is where we display errors.
           </div>

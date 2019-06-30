@@ -1,5 +1,6 @@
 // Store our access token as a constant.
 var DISSOLUTION_TOKEN;
+var USER_ADDRESS;
 
 // A helper function to show an error message on the page.
 function showError (errorMessage) {
@@ -55,19 +56,14 @@ async function refreshInventory () {
 		$("#ownedListGame").html('Unable to retrieve the server inventory.');
 	}
 
-	/*
-	// Update the list of this user's ERC721 assets on the "from" exchange.
-	var fromTokens = await promisify(cb => FromExchange.tokensOf(web3.eth.defaultAccount, cb));
-	var updatedListFrom = $("<ul id=\"ownedListFrom\" style=\"list-style-type:circle\"></ul>");
-	for (var i = 0; i < fromTokens.length; i++) {
-		var tokenID = new web3.BigNumber(fromTokens[i]);
-		var metadataString = await promisify(cb => FromExchange.tokenMetadata(tokenID, cb));
+	// Update the list of this user's Enjin-owned items if they have a valid address.
+	if (USER_ADDRESS !== '0x0000000000000000000000000000000000000000') {
 
-		// Color the entry red if it's been tokenized.
-		updatedListFrom.append("<li style=\"color:red;\">" + tokenID + ": " + metadataString + "</li>");
+	// Otherwise tell the user that they need to link an address.
+	} else {
+		$('#ownedListEnjin').html('You need to link an address to your account.');
+		$('#enjinSpinner').remove();
 	}
-	$("#ownedListFrom").html(updatedListFrom.html());
-	*/
 };
 
 // A function which asynchronously sets up the page.
@@ -76,6 +72,48 @@ var setup = async function (config) {
 
 	// Get the user's access token and identity.
 	DISSOLUTION_TOKEN = Cookies.get('dissolutionToken');
+
+	// Try to retrieve the user's profile information.
+	try {
+		var profileResponse = await $.ajax({
+			url : 'https://api.dissolution.online/core/master/profile/',
+			headers: { 'Authorization' : 'Bearer ' + DISSOLUTION_TOKEN }
+		});
+
+		// Get all of the profile fields.
+		var userId = profileResponse.userId;
+		var username = profileResponse.username;
+		var email = profileResponse.email;
+		USER_ADDRESS = profileResponse.lastAddress;
+		var isAdmin = profileResponse.isAdmin;
+		var kills = profileResponse.Kills;
+		var deaths = profileResponse.Deaths;
+		var assists = profileResponse.Assists;
+		var accuracy = profileResponse.Accuracy;
+		var wins = profileResponse.Wins;
+		var losses = profileResponse.Losses;
+
+		// Display the fields to the user.
+		var updatedProfileList = $("<ul id=\"profileInformation\" style=\"list-style-type:circle\"></ul>");
+		updatedProfileList.append("<li>Your user ID: " + userId + "</li>");
+		updatedProfileList.append("<li>Your username: " + username + "</li>");
+		updatedProfileList.append("<li>Your email: " + email + "</li>");
+		updatedProfileList.append("<li>Your Ethereum address: " + USER_ADDRESS + "</li>");
+		updatedProfileList.append("<li>Your kills: " + kills + "</li>");
+		updatedProfileList.append("<li>Your deaths: " + deaths + "</li>");
+		updatedProfileList.append("<li>Your assists: " + assists + "</li>");
+		updatedProfileList.append("<li>Your accuracy: " + accuracy + "</li>");
+		updatedProfileList.append("<li>Your wins: " + wins + "</li>");
+		updatedProfileList.append("<li>Your losses: " + losses + "</li>");
+
+		// Update our list and remove the loading indicator.
+		$("#profileInformation").html(updatedProfileList.html());
+		$('#profileSpinner').remove();
+
+	// If unable to retrieve the user profile information, show an error.
+	} catch (error) {
+		showError('Unable to retrieve user profile.');
+	}
 
 	/*
 	// Assign functionality to the example mint button.
