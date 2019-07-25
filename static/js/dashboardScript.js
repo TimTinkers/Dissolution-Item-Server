@@ -2,6 +2,9 @@
 var DISSOLUTION_TOKEN;
 var USER_ADDRESS;
 
+// Track the list of game items which can be ascended.
+var gameItems = [];
+
 // A helper function to show an error message on the page.
 function showError (errorMessage) {
 	var errorBox = $('#errorBox');
@@ -25,6 +28,7 @@ async function refreshInventory () {
 		if (inventory.length > 0) {
 			$('#ownedTitleGame').html('You own the game assets from the Dissolution servers:');
 		}
+		var updatedGameItems = [];
 		for (var i = 0; i < inventory.length; i++) {
 			var item = inventory[i];
 			var itemId = item.itemId;
@@ -43,6 +47,14 @@ async function refreshInventory () {
 				// Update the actual list for display.
 				updatedListGame.append("<li>" + itemAmount + " x (" + itemId + ") " + itemName + ": " + itemDescription + "</li>");
 
+				updatedGameItems.push({
+					id : itemId,
+					amount : itemAmount,
+					name : itemName,
+					description : itemDescription,
+					image : itemImage
+				});
+
 			// If unable to retrieve an item's metadata, flag such an item.
 			} catch (error) {
 				updatedListGame.append("<li>" + itemAmount + " x (" + itemId + ") - unable to retrieve metadata. </li>");
@@ -50,6 +62,7 @@ async function refreshInventory () {
 		}
 
 		// Update our list and remove the loading indicator.
+		gameItems = updatedGameItems;
 		$("#ownedListGame").html(updatedListGame.html());
 		$('#gameServerSpinner').remove();
 
@@ -62,13 +75,14 @@ async function refreshInventory () {
 	// Update the list of this user's Enjin-owned items if they have a valid address.
 	var connectionData = await $.post("/connect");
 	if (connectionData.status === 'LINKED') {
-		$('#linkingQR').empty();
 		var address = connectionData.address;
 		var inventory = connectionData.inventory;
 		$('#enjinMessage').html("Your Ethereum address is " + address);
 		if (inventory.length > 0) {
 			$('#ownedTitleEnjin').html('You own the following Enjin ERC-1155 items:');
 		}
+		$('#linkingQR').empty();
+		$('#mintButton').show();
 		var updatedListEnjin = $("<ul id=\"ownedListEnjin\" style=\"list-style-type:circle\"></ul>");
 		for (var i = 0; i < inventory.length; i++) {
 			var item = inventory[i];
@@ -101,6 +115,7 @@ async function refreshInventory () {
 		$('#linkingQR').html("<img src=\"" + connectionData.qr + "\"></img>");
 		$('#ownedTitleEnjin').html('You do not own any Enjin ERC-1155 items.');
 		$("#ownedListEnjin").empty();
+		$('#mintButton').hide();
 		$('#enjinSpinner').remove();
 
 	// Otherwise, display an error from the server.
@@ -164,45 +179,25 @@ var setup = async function (config) {
 		showError('Unable to retrieve user profile.');
 	}
 
-	/*
-	// Assign functionality to the example mint button.
-	// This simplified example only works because I've made my MetaMask wallet an authority.
+	// Assign functionality to the item minting button.
 	$("#mintButton").click(async function() {
-		var mintItemId = parseInt($("#metadataInput").val());
+		$("#mintingCheckoutContent").empty();
+		if (gameItems.length > 0) {
+			var updatedModalContent = $("<ul id=\"checkoutList\" style=\"list-style-type:circle\"></ul>");
+			for (var i = 0; i < gameItems.length; i++) {
+				var item = gameItems[i];
+				var itemAmount = item.amount;
+				var itemId = item.id;
+				var itemName = item.name;
 
-		// Check for the existence of any such item type.
-		var userId = Cookies.get('userId');
-		var hasItem = false;
-		var mintItemName = "";
-		await $.get("/getItems?userId=" + userId, function (data) {
-			for (var i = 0; i < data.length; i++) {
-				var item = data[i];
-				var balance = parseInt(item.balance, 10);
-				var itemId = parseInt(item.item_id)
-				if (itemId === mintItemId && balance > 0) {
-					hasItem = true;
-					mintItemName = item.item_name;
-					break;
-				}
+				updatedModalContent.append("<li>(" + itemId + ") " + itemName + "\t\t<input type=\"number\" value=\"0\" min=\"0\" max=\"" + itemAmount + "\" step=\"1\" style=\"float: right\"/></li>");
 			}
-		});
+			$("#mintingCheckoutContent").html(updatedModalContent.html());
 
-		// Remove an instance of this item from the database if the user has one.
-		if (hasItem) {
-			await $.post("/removeItem", { userId: userId, itemName: mintItemName, itemId: mintItemId });
-
-			// Mint the new token for this user.
-			console.log("**** itemName: " + mintItemName + ", itemId: " + mintItemId);
-			var gasLimit = await promisify(cb => FromExchange.mint.estimateGas(web3.eth.defaultAccount, mintItemName, { from: web3.eth.defaultAccount }, cb));
-			const transactionData = {
-				from: web3.eth.defaultAccount,
-				gas: gasLimit,
-				gasPrice: 21000000000
-			};
-			await promisify(cb => FromExchange.mint.sendTransaction(web3.eth.defaultAccount, mintItemName, transactionData, cb));
+		} else {
+			$("#mintingCheckoutContent").html("You have no items which can be ascended to Enjin at this time.");
 		}
 	});
-	*/
 
 	// Assign functionality to the example logout button.
 	$("#logoutButton").click(async function() {

@@ -83,12 +83,34 @@
             </ul>
           </div>
 
+          <!-- This button displays the minting checkout modal. -->
           <br />
-          <button id="mintButton" class="collapse">Mint New Asset</button>
+          <button id="mintButton" class="btn btn-primary collapse" data-toggle="modal" data-target="#mintingCheckoutModal">Mint New Asset</button>
           <br />
 
+          <!-- This modal contains the contents for minting checkout. -->
+          <div class="modal fade" id="mintingCheckoutModal" tabindex="-1" role="dialog" aria-labelledby="mintingCheckoutModalCenterTitle" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h5 class="modal-title" id="mintingCheckoutModalLongTitle">Minting Checkout</h5>
+                  <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                  </button>
+                </div>
+                <div id="mintingCheckoutContent" class="modal-body">
+                  You have no items which can be ascended to Enjin at this time.
+                </div>
+                <div class="modal-footer">
+                  <button id="mintingCheckoutClose" type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                  <button id="mintingCheckoutPurchase" type="button" class="btn btn-primary">Checkout</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- A button that logs the user out. -->
-          <button id="logoutButton">Logout</button>
+          <button id="logoutButton" class="btn btn-primary">Logout</button>
 
           <!-- An alert for the most-recent error to be displayed. -->
           <div id="errorBox" class="collapse alert alert-danger" role="alert">
@@ -101,6 +123,7 @@
     <script src="/js/jquery.min.js"></script>
     <script src="/js/js.cookie.js"></script>
     <script src="/js/bootstrap.min.js"></script>
+    <script src="/js/bootstrap-input-spinner.js"></script>
     <script src="/js/dashboardScript.js"></script>
   </body>
 </html>
