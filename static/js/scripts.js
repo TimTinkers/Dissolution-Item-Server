@@ -22,6 +22,9 @@ async function refreshInventory () {
 		// Update the list of this player's assets that reside solely on the game database.
 		var updatedListGame = $("<ul id=\"ownedListGame\" style=\"list-style-type:circle\"></ul>");
 		var inventory = inventoryResponse.inventory;
+		if (inventory.length > 0) {
+			$('#ownedTitleGame').html('You own the game assets from the Dissolution servers:');
+		}
 		for (var i = 0; i < inventory.length; i++) {
 			var item = inventory[i];
 			var itemId = item.itemId;
@@ -57,12 +60,56 @@ async function refreshInventory () {
 	}
 
 	// Update the list of this user's Enjin-owned items if they have a valid address.
-	if (USER_ADDRESS !== '0x0000000000000000000000000000000000000000') {
+	var connectionData = await $.post("/connect");
+	if (connectionData.status === 'LINKED') {
+		var address = connectionData.address;
+		var inventory = connectionData.inventory;
+		$('#enjinMessage').html("Your Ethereum address is " + address);
+		if (inventory.length > 0) {
+			$('#ownedTitleEnjin').html('You own the following Enjin ERC-1155 items:');
+		}
+		var updatedListEnjin = $("<ul id=\"ownedListEnjin\" style=\"list-style-type:circle\"></ul>");
+		for (var i = 0; i < inventory.length; i++) {
+			var item = inventory[i];
+			var itemAmount = item.balance;
+			var itemId = item['token_id'];
+			var itemURI = item.itemURI;
 
-	// Otherwise tell the user that they need to link an address.
-	} else {
-		$('#ownedListEnjin').html('You need to link an address to your account.');
+			// Try to retrieve metadata about each item.
+			try {
+				var itemMetadataResponse = await $.get(itemURI);
+				var itemName = itemMetadataResponse.name;
+				var itemImage = itemMetadataResponse.image;
+				var itemDescription = itemMetadataResponse.description;
+
+				// Update the actual list for display.
+				updatedListEnjin.append("<li>" + itemAmount + " x (" + itemId + ") " + itemName + ": " + itemDescription + "</li>");
+
+			// If unable to retrieve an item's metadata, flag such an item.
+			} catch (error) {
+				updatedListEnjin.append("<li>" + itemAmount + " x (" + itemId + ") - unable to retrieve metadata. </li>");
+			}
+		}
+		$("#ownedListEnjin").html(updatedListEnjin.html());
 		$('#enjinSpinner').remove();
+
+	// Otherwise, notify the user that they must link an Enjin address.
+	} else if (connectionData.status === 'MUST_LINK') {
+		var code = connectionData.code;
+		$('#enjinSpinner').remove();
+		$('#enjinMessage').html("You must link your Enjin wallet to " + code);
+
+	// Otherwise, display an error from the server.
+	} else if (connectionData.status === 'ERROR') {
+		var errorBox = $('#errorBox');
+		errorBox.html(connectionData.message);
+		errorBox.show();
+
+	// Otherwise, display an error about an unknown status.
+	} else {
+		var errorBox = $('#errorBox');
+		errorBox.html('Received unknown message status from the server.');
+		errorBox.show();
 	}
 };
 
@@ -95,10 +142,8 @@ var setup = async function (config) {
 
 		// Display the fields to the user.
 		var updatedProfileList = $("<ul id=\"profileInformation\" style=\"list-style-type:circle\"></ul>");
-		updatedProfileList.append("<li>Your user ID: " + userId + "</li>");
 		updatedProfileList.append("<li>Your username: " + username + "</li>");
 		updatedProfileList.append("<li>Your email: " + email + "</li>");
-		updatedProfileList.append("<li>Your Ethereum address: " + USER_ADDRESS + "</li>");
 		updatedProfileList.append("<li>Your kills: " + kills + "</li>");
 		updatedProfileList.append("<li>Your deaths: " + deaths + "</li>");
 		updatedProfileList.append("<li>Your assists: " + assists + "</li>");
