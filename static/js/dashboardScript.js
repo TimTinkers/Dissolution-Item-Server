@@ -4,6 +4,7 @@ var USER_ADDRESS;
 
 // Track the list of game items which can be ascended.
 var gameItems = [];
+var checkoutItems = {};
 
 // A helper function to show an error message on the page.
 function showError (errorMessage) {
@@ -136,6 +137,13 @@ async function refreshInventory () {
 var setup = async function (config) {
 	console.log('Setting up page given configuration ...');
 
+	// Assigning delegate to modal event handler.
+	$("#mintingCheckoutContent").on('input', '.input', function (changedEvent) {
+		var itemValue = parseInt($(this).val());
+		var itemId = $(this).attr('itemId');
+		checkoutItems[itemId] = itemValue;
+	});
+
 	// Get the user's access token and identity.
 	DISSOLUTION_TOKEN = Cookies.get('dissolutionToken');
 
@@ -182,6 +190,7 @@ var setup = async function (config) {
 	// Assign functionality to the item minting button.
 	$("#mintButton").click(async function() {
 		$("#mintingCheckoutContent").empty();
+		checkoutItems = {};
 		if (gameItems.length > 0) {
 			var updatedModalContent = $("<ul id=\"checkoutList\" style=\"list-style-type:circle\"></ul>");
 			for (var i = 0; i < gameItems.length; i++) {
@@ -190,13 +199,20 @@ var setup = async function (config) {
 				var itemId = item.id;
 				var itemName = item.name;
 
-				updatedModalContent.append("<li>(" + itemId + ") " + itemName + "\t\t<input type=\"number\" value=\"0\" min=\"0\" max=\"" + itemAmount + "\" step=\"1\" style=\"float: right\"/></li>");
+				updatedModalContent.append("<li>(" + itemId + ") " + itemName + "\t\t<input id=\"amount-" + itemId + "\" class=\"input\" itemId=\"" + itemId + "\" type=\"number\" value=\"0\" min=\"0\" max=\"" + itemAmount + "\" step=\"1\" style=\"float: right\"/></li>");
 			}
 			$("#mintingCheckoutContent").html(updatedModalContent.html());
 
 		} else {
 			$("#mintingCheckoutContent").html("You have no items which can be ascended to Enjin at this time.");
 		}
+	});
+
+	// Assign functionality to the modal's checkout button.
+	$("#mintingCheckoutPurchase").click(async function() {
+		$.post("/checkout", { checkoutItems : checkoutItems }, function (data) {
+			console.log(data);
+		});
 	});
 
 	// Assign functionality to the example logout button.
