@@ -238,6 +238,7 @@ async function sendStatusToClient(client, email, res) {
 					id
 					app_id
 					linking_code
+					linking_code_qr(size: 256)
 					ethereum_address
 				}
 			}
@@ -248,12 +249,14 @@ async function sendStatusToClient(client, email, res) {
 		// Find the user's address or linking code for this app.
 		var userAddress = "0x0000000000000000000000000000000000000000";
 		var userLinkingCode = null;
+		var userLinkingCodeQR = "";
 		var userIdentities = enjinSearchResponse.result.identities;
 		for (var i = 0; i < userIdentities.length; i++) {
 			var identity = userIdentities[i];
 			if (identity['app_id'] === parseInt(process.env.DISSOLUTION_APP_ID)) {
 				userAddress = identity['ethereum_address'];
 				userLinkingCode = identity['linking_code'];
+				userLinkingCodeQR = identity['linking_code_qr'];
 				break;
 			}
 		}
@@ -298,7 +301,7 @@ async function sendStatusToClient(client, email, res) {
 
 		// Otherwise, notify the user that they must link.
 		} else {
-			res.send({ status : 'MUST_LINK', code : userLinkingCode });
+			res.send({ status : 'MUST_LINK', code : userLinkingCode, qr: userLinkingCodeQR });
 		}
 
 	// We could not actually find the user's existing identity.

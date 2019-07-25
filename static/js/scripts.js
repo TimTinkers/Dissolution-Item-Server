@@ -62,6 +62,7 @@ async function refreshInventory () {
 	// Update the list of this user's Enjin-owned items if they have a valid address.
 	var connectionData = await $.post("/connect");
 	if (connectionData.status === 'LINKED') {
+		$('#linkingQR').empty();
 		var address = connectionData.address;
 		var inventory = connectionData.inventory;
 		$('#enjinMessage').html("Your Ethereum address is " + address);
@@ -96,8 +97,11 @@ async function refreshInventory () {
 	// Otherwise, notify the user that they must link an Enjin address.
 	} else if (connectionData.status === 'MUST_LINK') {
 		var code = connectionData.code;
-		$('#enjinSpinner').remove();
 		$('#enjinMessage').html("You must link your Enjin wallet to " + code);
+		$('#linkingQR').html("<img src=\"" + connectionData.qr + "\"></img>");
+		$('#ownedTitleEnjin').html('You do not own any Enjin ERC-1155 items.');
+		$("#ownedListEnjin").empty();
+		$('#enjinSpinner').remove();
 
 	// Otherwise, display an error from the server.
 	} else if (connectionData.status === 'ERROR') {
