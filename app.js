@@ -11,6 +11,7 @@ var jwksClient = require('jwks-rsa');
 var dissolutionClient = jwksClient({
 	jwksUri: 'https://dissolution.auth0.com/.well-known/jwks.json'
 });
+const paypal = require('@paypal/checkout-server-sdk');
 
 // Express application setup.
 var app = express();
@@ -34,6 +35,8 @@ var ENJIN_ADMIN_ACCESS_TOKEN;
 var ENJIN_ADMIN_USER_ID;
 var ENJIN_ADMIN_IDENTITY_ID;
 var ENJIN_ADMIN_ETHEREUM_ADDRESS;
+var PAYPAL_ADMIN_ACCESS_TOKEN;
+var PAYPAL_CLIENT;
 
 // Launch the application and begin the server listening.
 var server = app.listen(3000, async function () {
@@ -123,6 +126,49 @@ var server = app.listen(3000, async function () {
 			// Log our retrieved administrator information.
 			console.log('The Dissolution Enjin administrator is available as user ' + ENJIN_ADMIN_USER_ID + ' with identity ' + ENJIN_ADMIN_IDENTITY_ID + ' and address ' + ENJIN_ADMIN_ETHEREUM_ADDRESS);
 
+			// Retrieve Paypal administrator credentials.
+			var paypalClientId = process.env.PAYPAL_CLIENT_ID;
+			var paypalSecret = process.env.PAYPAL_SECRET;
+
+			// Verify that the Paypal credentials were actually provided.
+			if (!paypalClientId || !paypalSecret) {
+				console.error('You must specify Paypal credentials in .env!');
+				server.close();
+				return;
+			}
+
+			// Attempt to retrieve a Paypal access token.
+			try {
+				var paypalResponse = await requestPromise({
+					method: 'POST',
+			    uri: "https://api.sandbox.paypal.com/v1/oauth2/token",
+			    headers: {
+		        "Accept": "application/json",
+		        "Accept-Language": "en_US",
+		        "content-type": "application/x-www-form-urlencoded"
+			    },
+			    auth: {
+				    'user': paypalClientId,
+				    'pass': paypalSecret
+				  },
+				  form: {
+			    	"grant_type": "client_credentials"
+				  }
+				});
+				paypalResponse = JSON.parse(paypalResponse);
+				PAYPAL_ADMIN_ACCESS_TOKEN = paypalResponse['access_token'];
+
+				// Setup the Paypal client connection.
+				PAYPAL_CLIENT = new paypal.core.PayPalHttpClient(new paypal.core.SandboxEnvironment(paypalClientId, paypalSecret));
+
+			// Verify that we were actually able to get Paypal access.
+			} catch (error) {
+				console.error(error);
+				console.error('Unable to log into Paypal. Check your credentials.');
+				server.close();
+				return;
+			}
+
 		// Verify that we were actually able to login.
 		} catch (error) {
 			console.error(error);
@@ -167,7 +213,7 @@ app.get('/', function (req, res) {
 					error : "\'Your access token cannot be verified. Please log in again.\'"
 				});
 			} else {
-				res.render('dashboard', decoded);
+				res.render('dashboard', { paypalClientId : process.env.PAYPAL_CLIENT_ID });
 			}
 		});
 	}
@@ -375,6 +421,196 @@ app.post('/connect', asyncMiddleware(async (req, res, next) => {
 							console.error(error);
 							res.send({ status : 'ERROR', message : 'Unknown error occurred when trying to invite the user to Enjin.' });
 						}
+					}
+
+				// If we are unable to retrieve the user's profile, log an error and notify them.
+				} catch (error) {
+					console.error(error);
+					res.render('login', { error : "\'Unable to retrieve your profile information.\'" });
+					return;
+				}
+			}
+		});
+	}
+}));
+
+// Handle a user approving the Paypal transaction for ascension.
+app.post('/approve', asyncMiddleware(async (req, res, next) => {
+
+	// Get the order ID from the request body.
+	const orderID = req.body.orderID;
+
+	// Call PayPal to capture the order.
+	const captureRequest = new paypal.orders.OrdersCaptureRequest(orderID);
+	captureRequest.requestBody({});
+
+	try {
+		const capture = await PAYPAL_CLIENT.execute(captureRequest);
+
+		// Save the capture ID to your database. Implement logic to save capture to your database for future reference.
+		const captureID = capture.result.purchase_units[0].payments.captures[0].id;
+ 		// await database.saveCaptureID(captureID);
+		console.log(captureID);
+
+	} catch (err) {
+
+		// Handle any errors from the call.
+		console.error(err);
+		return res.send(500);
+	}
+
+	// Call PayPal to get the transaction details.
+  let orderRequest = new paypal.orders.OrdersGetRequest(orderID);
+
+  let order;
+  try {
+    order = await PAYPAL_CLIENT.execute(orderRequest);
+  } catch (err) {
+
+    // Handle any errors from the call.
+    console.error(err);
+    return res.send(500);
+  }
+
+  // Validate the transaction details are as expected.
+  if (order.result.purchase_units[0].amount.value !== '1.00') {
+    return res.send(400);
+  }
+
+  // Save the transaction in your database
+  // await database.saveTransaction(orderID);
+	console.log(orderID);
+
+  // Return a successful response to the client.
+  return res.send(200);
+}));
+
+// Handle a user requesting to ascend their items.
+app.post('/checkout', asyncMiddleware(async (req, res, next) => {
+
+	// Redirect the user to login if they are not authenticated.
+	var dissolutionToken = req.cookies.dissolutionToken;
+	if (dissolutionToken === undefined || dissolutionToken === 'undefined') {
+		res.render('login', { error : 'null' });
+
+	// Otherwise, verify the correctness of the access token.
+	} else {
+		jwt.verify(dissolutionToken, getKey, async function (error, decoded) {
+			if (error) {
+				res.render('login', {
+					error : "\'Your access token cannot be verified. Please log in again.\'"
+				});
+
+			// If the access token is correct, retrieve the user's profile information.
+			} else {
+				try {
+					var profileResponse = await requestPromise({
+						method: 'GET',
+						uri: 'https://api.dissolution.online/core/master/profile/',
+						headers: {
+							'Accept': 'application/json',
+							'Content-Type': 'application/json',
+							'Authorization': 'Bearer ' + dissolutionToken
+						}
+					});
+					profileResponse = JSON.parse(profileResponse);
+					var userId = profileResponse.userId;
+
+					// Try to retrieve the user's inventory.
+					try {
+						var inventoryResponse = await requestPromise({
+							method: 'GET',
+							uri: 'https://api.dissolution.online/core/master/inventory/',
+							headers: {
+								'Accept': 'application/json',
+								'Content-Type': 'application/json',
+								'Authorization': 'Bearer ' + dissolutionToken
+							}
+						});
+						inventoryResponse = JSON.parse(inventoryResponse);
+						var inventory = inventoryResponse.inventory;
+
+						// Create an accessible cache of inventory data.
+						var inventoryMap = {};
+						for (var i = 0; i < inventory.length; i++) {
+							var item = inventory[i];
+							if (item.amount > 0) {
+								inventoryMap[item.itemId] = item.amount;
+							}
+						}
+
+						// Retrieve the user's list of items to ascend.
+						var clearToCheckout = true;
+						var itemCount = 0;
+						var checkoutItems = req.body.checkoutItems;
+						var itemsToMint = {};
+						if (checkoutItems) {
+							for (var itemId in checkoutItems) {
+								var requestedAmount = checkoutItems[itemId];
+								if (requestedAmount <= 0) {
+									continue;
+								}
+
+								var availableAmount = inventoryMap[itemId];
+								if (availableAmount < requestedAmount) {
+									clearToCheckout = false;
+								} else {
+									itemCount += 1;
+									itemsToMint[itemId] = requestedAmount;
+								}
+							}
+
+							// Error if the user has not chosen to checkout at least one item.
+							if (itemCount < 1) {
+								res.send({ status : 'ERROR', message : 'You must specify at least one item to checkout.' });
+								return;
+							}
+
+							// If the user is not clear to checkout, they might not have the items to cover the transaction.
+							if (!clearToCheckout) {
+								res.send({ status : 'ERROR', message : 'You do not have these items available to checkout with.' });
+								return;
+							}
+
+							// Charge the user for the items; call PayPal to set up a transaction.
+						  const request = new paypal.orders.OrdersCreateRequest();
+						  request.prefer("return=representation");
+						  request.requestBody({
+						    intent: 'CAPTURE',
+						    purchase_units: [{
+						      amount: {
+						        currency_code: 'USD',
+						        value: itemCount
+						      }
+						    }]
+						  });
+
+						  let order;
+						  try {
+						    order = await PAYPAL_CLIENT.execute(request);
+						  } catch (error) {
+
+						    // Handle any errors from the call.
+						    console.error(error);
+						    return res.send(500);
+						  }
+
+						  // Return a successful response to the client with the order ID.
+						  res.status(200).json({
+						    orderID: order.result.id
+						  });
+
+						// Return an error regarding an empty set of checkout items.
+						} else {
+							res.send({ status : 'ERROR', message : 'You must specify items to checkout.' });
+							return;
+						}
+
+					// If we are unable to retrieve the user's inventory, log an error and notify them.
+					} catch (error) {
+						console.error(error);
+						res.render('login', { error : "\'Unable to retrieve your inventory information.\'" });
+						return;
 					}
 
 				// If we are unable to retrieve the user's profile, log an error and notify them.

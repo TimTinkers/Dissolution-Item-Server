@@ -208,12 +208,37 @@ var setup = async function (config) {
 		}
 	});
 
-	// Assign functionality to the modal's checkout button.
-	$("#mintingCheckoutPurchase").click(async function() {
-		$.post("/checkout", { checkoutItems : checkoutItems }, function (data) {
-			console.log(data);
-		});
-	});
+	// Assign functionality to the modal's Paypal checkout button.
+	paypal.Buttons({
+		createOrder: function() {
+		  return fetch('/checkout', {
+		    method: 'post',
+		    headers: {
+		      'content-type': 'application/json'
+		    },
+				body: JSON.stringify({ checkoutItems : checkoutItems })
+		  }).then(function(res) {
+		    return res.json();
+		  }).then(function(data) {
+		    return data.orderID;
+		  });
+		},
+		onApprove: function(data) {
+		  return fetch('/approve', {
+				method: 'post',
+		    headers: {
+	      	'content-type': 'application/json'
+		    },
+		    body: JSON.stringify({
+		      orderID: data.orderID
+		    })
+		  }).then(function(res) {
+		    return res.json();
+		  }).then(function(details) {
+		    alert('Transaction funds captured from ' + details.payer_given_name);
+			});
+		}
+	}).render('#paypal-button-container');
 
 	// Assign functionality to the example logout button.
 	$("#logoutButton").click(async function() {

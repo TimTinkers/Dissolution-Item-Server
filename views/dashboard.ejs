@@ -103,7 +103,8 @@
                 </div>
                 <div class="modal-footer">
                   <button id="mintingCheckoutClose" type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
-                  <button id="mintingCheckoutPurchase" type="button" class="btn btn-primary">Checkout</button>
+                  <!-- <button id="mintingCheckoutPurchase" type="button" class="btn btn-primary">Checkout</button> -->
+                  <div id="paypal-button-container"></div>
                 </div>
               </div>
             </div>
@@ -120,6 +121,7 @@
       </div>
     </div>
 
+    <script src="https://www.paypal.com/sdk/js?client-id=<%= paypalClientId %>"></script>
     <script src="/js/jquery.min.js"></script>
     <script src="/js/js.cookie.js"></script>
     <script src="/js/bootstrap.min.js"></script>

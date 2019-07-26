@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "dependencies": {
+    "@paypal/checkout-server-sdk": "^1.0.1",
     "aws-sdk": "latest",
     "babel-polyfill": "^6.26.0",
     "babel-preset-es2015": "^6.24.1",
