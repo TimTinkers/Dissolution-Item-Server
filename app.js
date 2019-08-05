@@ -12,6 +12,7 @@ var dissolutionClient = jwksClient({
 	jwksUri: 'https://dissolution.auth0.com/.well-known/jwks.json'
 });
 const paypal = require('@paypal/checkout-server-sdk');
+const uuidv1 = require('uuid/v1');
 
 // Express application setup.
 var app = express();
@@ -273,21 +274,20 @@ app.post("/logout", function (req, res) {
 async function sendStatusToClient(client, email, res) {
 	try {
 		const enjinSearchData = JSON.stringify({
-			email : email
+			appId : process.env.DISSOLUTION_APP_ID
 		});
 		const enjinSearchMutation =
-		`query GetUserByEmail($email: String!) {
-			result: EnjinUser(email: $email) {
-				id
-				name
-				identities {
-					id
-					app_id
-					linking_code
-					linking_code_qr(size: 256)
-					ethereum_address
-				}
-			}
+		`query getAppMembers($appId : Int) {
+		  result: EnjinApp(id: $appId) {
+		    identities {
+		      ethereum_address
+		      linking_code
+		      linking_code_qr
+		      user {
+		        email
+		      }
+		    }
+		  }
 		}
 		`;
 		var enjinSearchResponse = await client.request(enjinSearchMutation, enjinSearchData);
@@ -299,7 +299,7 @@ async function sendStatusToClient(client, email, res) {
 		var userIdentities = enjinSearchResponse.result.identities;
 		for (var i = 0; i < userIdentities.length; i++) {
 			var identity = userIdentities[i];
-			if (identity['app_id'] === parseInt(process.env.DISSOLUTION_APP_ID)) {
+			if (identity.user['email'] === email) {
 				userAddress = identity['ethereum_address'];
 				userLinkingCode = identity['linking_code'];
 				userLinkingCodeQR = identity['linking_code_qr'];
@@ -420,6 +420,7 @@ app.post('/connect', asyncMiddleware(async (req, res, next) => {
 						} else {
 							console.error(error);
 							res.send({ status : 'ERROR', message : 'Unknown error occurred when trying to invite the user to Enjin.' });
+							return;
 						}
 					}
 
@@ -572,33 +573,85 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 								return;
 							}
 
-							// Charge the user for the items; call PayPal to set up a transaction.
-						  const request = new paypal.orders.OrdersCreateRequest();
-						  request.prefer("return=representation");
-						  request.requestBody({
-						    intent: 'CAPTURE',
-						    purchase_units: [{
-						      amount: {
-						        currency_code: 'USD',
-						        value: itemCount
-						      }
-						    }]
-						  });
+							// Retrieve the user's chosen payment method.
+							var paypalEnabled = process.env.PAYPAL_ENABLED;
+							var coingateEnabled = process.env.COINGATE_ENABLED;
+							var paymentMethod = req.body.paymentMethod;
+							if (paymentMethod === 'PAYPAL') {
 
-						  let order;
-						  try {
-						    order = await PAYPAL_CLIENT.execute(request);
-						  } catch (error) {
+								// If Paypal is not enabled, notify the user as such.
+								if (!paypalEnabled) {
+									res.send({ status : 'ERROR', message : 'PayPal is not enabled as a payment option.' });
+									return;
+								}
 
-						    // Handle any errors from the call.
-						    console.error(error);
-						    return res.send(500);
-						  }
+								// Charge the user for the items; call PayPal to set up a transaction.
+							  const request = new paypal.orders.OrdersCreateRequest();
+							  request.prefer("return=representation");
+							  request.requestBody({
+							    intent: 'CAPTURE',
+							    purchase_units: [{
+							      amount: {
+							        currency_code: 'USD',
+							        value: itemCount
+							      }
+							    }]
+							  });
 
-						  // Return a successful response to the client with the order ID.
-						  res.status(200).json({
-						    orderID: order.result.id
-						  });
+							  let order;
+							  try {
+							    order = await PAYPAL_CLIENT.execute(request);
+							  } catch (error) {
+
+							    // Handle any errors from the call.
+							    console.error(error);
+							    return res.send(500);
+							  }
+
+							  // Return a successful response to the client with the order ID.
+							  res.status(200).json({
+							    orderID: order.result.id
+							  });
+
+							// Attempt to process the payment using CoinGate as a provider.
+							} else if (paymentMethod === 'COINGATE') {
+								var coingateToken = process.env.COINGATE_TOKEN;
+								try {
+									var orderBody = JSON.stringify({
+										order_id: 'Dissolution-' + uuidv1(),
+										price_amount: itemCount + '.00',
+										price_currency: 'USD',
+										receive_currency: 'USDT',
+										title: 'Mint your Items to Enjin',
+										description: 'Accepting this payment will mint your Dissolution items as blockchain-backed assets on Enjin.',
+										callback_url: process.env.BASE_URL + 'coingate-callback',
+										cancel_url: process.env.BASE_URL + 'coingate-cancel',
+										success_url: process.env.BASE_URL + 'coingate-success',
+										token: userId
+									});
+									var coingateOrder = await requestPromise({
+										method: 'POST',
+										uri: 'https://api-sandbox.coingate.com/v2/orders/',
+										headers: {
+											'Authorization': 'Token ' + coingateToken,
+											'Accept': 'application/json',
+											'Content-Type': 'application/json',
+											'Content-Length': orderBody.length
+										},
+										body: orderBody
+									});
+									coingateOrderResponse = JSON.parse(coingateOrder);
+
+									// Tell the client which URL to handle payment with.
+									res.send({ status : 'COINGATE_PAY', paymentUrl : coingateOrderResponse['payment_url'] });
+
+								// Return an error about an issue with creating the CoinGate order.
+								} catch (error) {
+									console.log(error);
+									res.send({ status : 'ERROR', message : 'The CoinGate order could not be created.' });
+									return;
+								}
+							}
 
 						// Return an error regarding an empty set of checkout items.
 						} else {
@@ -622,4 +675,19 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 			}
 		});
 	}
+}));
+
+// Handle a callback event from CoinGate.
+app.post('/coingate-callback', asyncMiddleware(async (req, res, next) => {
+	console.log('callback', req.body);
+}));
+
+// Handle a success event from CoinGate.
+app.post('/coingate-success', asyncMiddleware(async (req, res, next) => {
+	console.log('success', req.body);
+}));
+
+// Handle a cancel event from CoinGate.
+app.post('/coingate-cancel', asyncMiddleware(async (req, res, next) => {
+	console.log('cancel', req.body);
 }));

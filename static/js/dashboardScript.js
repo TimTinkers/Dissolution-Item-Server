@@ -13,6 +13,13 @@ function showError (errorMessage) {
 	errorBox.show();
 };
 
+// A helper function to show a status message on the page.
+function showStatusMessage (statusMessage) {
+	var messageBox = $('#messageBox');
+	messageBox.html(statusMessage);
+	messageBox.show();
+};
+
 // Refresh the recent user's inventory.
 async function refreshInventory () {
 
@@ -216,7 +223,10 @@ var setup = async function (config) {
 		    headers: {
 		      'content-type': 'application/json'
 		    },
-				body: JSON.stringify({ checkoutItems : checkoutItems })
+				body: JSON.stringify({
+					checkoutItems : checkoutItems,
+					paymentMethod : 'PAYPAL'
+				})
 		  }).then(function(res) {
 		    return res.json();
 		  }).then(function(data) {
@@ -239,6 +249,22 @@ var setup = async function (config) {
 			});
 		}
 	}).render('#paypal-button-container');
+
+	// Assign functionality to the CoinGate purchase button.
+	$("#coingateButton").click(async function() {
+		$.post("/checkout", {
+			checkoutItems : checkoutItems,
+			paymentMethod : 'COINGATE'
+		}, function (data) {
+			if (data.status === 'COINGATE_PAY') {
+				showStatusMessage('Please proceed to ' + data.paymentUrl + ' to complete payment.');
+				var coingatePay = window.open(data.paymentUrl, '_blank');
+				if (coingatePay) {
+					coingatePay.focus();
+				}
+			}
+		});
+	});
 
 	// Assign functionality to the example logout button.
 	$("#logoutButton").click(async function() {
