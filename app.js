@@ -1,21 +1,28 @@
+'use strict';
+
+// Retrieve and parse environment variables.
+const result = require('dotenv').config();
+if (result.error) {
+	console.error(result.parsed);
+}
+
 // Imports.
-var dotenv = require('dotenv').config();
-var express = require('express');
-var bodyParser = require('body-parser');
-var cookieParser = require('cookie-parser');
-var mysql = require('promise-mysql');
-var requestPromise = require('request-promise');
-var { request, GraphQLClient } = require('graphql-request');
-var jwt = require('jsonwebtoken');
-var jwksClient = require('jwks-rsa');
-var dissolutionClient = jwksClient({
-	jwksUri: 'https://dissolution.auth0.com/.well-known/jwks.json'
+const util = require('util');
+const express = require('express');
+const bodyParser = require('body-parser');
+const cookieParser = require('cookie-parser');
+const mysql = require('promise-mysql');
+const requestPromise = require('request-promise');
+const { GraphQLClient } = require('graphql-request');
+const jwt = require('jsonwebtoken');
+const jwksClient = require('jwks-rsa');
+const gameClient = jwksClient({
+	jwksUri: process.env.GAME_JWKS_URI
 });
 const paypal = require('@paypal/checkout-server-sdk');
-const uuidv1 = require('uuid/v1');
 
 // Express application setup.
-var app = express();
+let app = express();
 app.use(express.static('static'));
 app.set('view engine', 'ejs');
 app.use(bodyParser.json());
@@ -30,94 +37,82 @@ const asyncMiddleware = fn => (req, res, next) => {
 	.catch(next);
 };
 
-// Constants for tracking the administrator's access tokens.
-var DISSOLUTION_ADMIN_ACCESS_TOKEN;
-var ENJIN_ADMIN_ACCESS_TOKEN;
-var ENJIN_ADMIN_USER_ID;
-var ENJIN_ADMIN_IDENTITY_ID;
-var ENJIN_ADMIN_ETHEREUM_ADDRESS;
-var PAYPAL_ADMIN_ACCESS_TOKEN;
-var PAYPAL_CLIENT;
+// Track particular state for operating this server.
+let APPLICATION = process.env.APPLICATION;
+let EXPRESS_PORT = process.env.EXPRESS_PORT;
+let GAME_ADMIN_ACCESS_TOKEN;
+let ENJIN_ADMIN_ACCESS_TOKEN;
+let ENJIN_ADMIN_USER_ID;
+let ENJIN_ADMIN_IDENTITY_ID;
+let ENJIN_ADMIN_ETHEREUM_ADDRESS;
+let PAYPAL_CLIENT;
+let DATABASE_CONNECTION;
 
 // Launch the application and begin the server listening.
-var server = app.listen(3000, async function () {
-	console.log('Starting Dissolution item exchange server listening on port 3000 ...');
+let server = app.listen(EXPRESS_PORT, async function () {
+	console.log(util.format(process.env.SETUP_STARTING, APPLICATION, EXPRESS_PORT));
 
-	// Retrieve Dissolution administrator credentials.
-	var dissolutionAdminUsername = process.env.DISSOLUTION_ADMIN_USERNAME;
-	var dissolutionAdminPassword = process.env.DISSOLUTION_ADMIN_PASSWORD;
+	// Retrieve game server administrator credentials.
+	let gameAdminUsername = process.env.GAME_ADMIN_USERNAME;
+	let gameAdminPassword = process.env.GAME_ADMIN_PASSWORD;
 
-	// Verify that the administrator credentials were actually provided.
-	if (!dissolutionAdminUsername || !dissolutionAdminPassword) {
-		console.error('You must specify Dissolution administrator credentials in .env!');
+	// Verify that the game administrator credentials were actually provided.
+	if (!gameAdminUsername || !gameAdminPassword) {
+		console.error(process.env.INVALID_GAME_ADMIN_CREDENTIALS);
 		server.close();
 		return;
 	}
 
-	// Attempt to log into Dissolution with the administrator.
+	// Attempt to log into the game with the administrator.
 	try {
-		const dissolutionLoginData = JSON.stringify({
-			username : dissolutionAdminUsername,
-			password : dissolutionAdminPassword
+		const gameLoginData = JSON.stringify({
+			username: gameAdminUsername,
+			password: gameAdminPassword
 		});
-		var dissolutionLoginResponse = await requestPromise({
+		let gameLoginResponse = await requestPromise({
 			method: 'POST',
-			uri: 'https://api.dissolution.online/core/master/login/',
+			uri: process.env.GAME_LOGIN_URI,
 			headers: {
 				'Accept': 'application/json',
 				'Content-Type': 'application/json',
-				'Content-Length': dissolutionLoginData.length
+				'Content-Length': gameLoginData.length
 			},
-			body: dissolutionLoginData
+			body: gameLoginData
 		});
-		dissolutionLoginResponse = JSON.parse(dissolutionLoginResponse);
+		gameLoginResponse = JSON.parse(gameLoginResponse);
 
-		// Store the Dissolution administrator's access token for later.
-		DISSOLUTION_ADMIN_ACCESS_TOKEN = dissolutionLoginResponse['access_token'];
+		// Store the game administrator's access token for later.
+		GAME_ADMIN_ACCESS_TOKEN = gameLoginResponse['access_token'];
 
 		// Attempt to log into Enjin with the administrator.
 		try {
-
-			// Retrieve Enjin administrator credentials.
-			var enjinPlatformUrl = process.env.ENJIN_PLATFORM_URL;
-			var enjinAdminEmail = process.env.ENJIN_ADMIN_EMAIL;
-			var enjinAdminPassword = process.env.ENJIN_ADMIN_PASSWORD;
+			let enjinPlatformUrl = process.env.ENJIN_PLATFORM_URL;
+			let enjinAdminEmail = process.env.ENJIN_ADMIN_EMAIL;
+			let enjinAdminPassword = process.env.ENJIN_ADMIN_PASSWORD;
 
 			// Verify that the administrator credentials were actually provided.
 			if (!enjinAdminEmail || !enjinAdminPassword) {
-				console.error('You must specify Enjin administrator credentials in .env!');
+				console.error(process.env.INVALID_ENJIN_ADMIN_CREDENTIALS);
 				server.close();
 				return;
 			}
 
-			// Issue the login query.
-			var client = new GraphQLClient(enjinPlatformUrl, { headers : {} });
+			// Issue the Enjin login query.
+			let client = new GraphQLClient(enjinPlatformUrl, { headers: {} });
 			const enjinLoginData = JSON.stringify({
-				email : enjinAdminEmail,
-				password : enjinAdminPassword
+				email: enjinAdminEmail,
+				password: enjinAdminPassword
 			});
-			const enjinLoginQuery =
-			`query login($email: String!, $password: String!) {
-				request: EnjinOauth(email: $email, password: $password) {
-					access_tokens
-					id
-					identities {
-						id
-						app_id
-						ethereum_address
-					}
-				}
-			}`;
-			var enjinLoginResponse = await client.request(enjinLoginQuery, enjinLoginData);
+			let enjinLoginResponse = await client.request(process.env.ENJIN_LOGIN_QUERY, enjinLoginData);
 			enjinLoginResponse = enjinLoginResponse.request;
 
 			// Parse out administrator information from the Enjin response.
 			ENJIN_ADMIN_ACCESS_TOKEN = enjinLoginResponse['access_tokens'][0]['access_token'];
 			ENJIN_ADMIN_USER_ID = enjinLoginResponse.id;
-			for (var i = 0; i < enjinLoginResponse.identities.length; i++) {
-				var identity = enjinLoginResponse.identities[i];
-				var appId = identity['app_id'];
-				if (appId === parseInt(process.env.DISSOLUTION_APP_ID)) {
+			for (let i = 0; i < enjinLoginResponse.identities.length; i++) {
+				let identity = enjinLoginResponse.identities[i];
+				let appId = identity['app_id'];
+				if (appId === parseInt(process.env.GAME_APP_ID)) {
 					ENJIN_ADMIN_IDENTITY_ID = identity.id;
 					ENJIN_ADMIN_ETHEREUM_ADDRESS = identity['ethereum_address'];
 					break;
@@ -125,180 +120,209 @@ var server = app.listen(3000, async function () {
 			}
 
 			// Log our retrieved administrator information.
-			console.log('The Dissolution Enjin administrator is available as user ' + ENJIN_ADMIN_USER_ID + ' with identity ' + ENJIN_ADMIN_IDENTITY_ID + ' and address ' + ENJIN_ADMIN_ETHEREUM_ADDRESS);
+			console.log(util.format(process.env.ENJIN_LOGIN_SUCCESS_MESSAGE, APPLICATION, ENJIN_ADMIN_USER_ID, ENJIN_ADMIN_IDENTITY_ID, ENJIN_ADMIN_ETHEREUM_ADDRESS));
 
-			// Retrieve Paypal administrator credentials.
-			var paypalClientId = process.env.PAYPAL_CLIENT_ID;
-			var paypalSecret = process.env.PAYPAL_SECRET;
+			// Setup PayPal if it is an enabled payment processor.
+			if (process.env.PAYPAL_ENABLED) {
+				let paypalClientId = process.env.PAYPAL_CLIENT_ID;
+				let paypalSecret = process.env.PAYPAL_CLIENT_SECRET;
 
-			// Verify that the Paypal credentials were actually provided.
-			if (!paypalClientId || !paypalSecret) {
-				console.error('You must specify Paypal credentials in .env!');
-				server.close();
-				return;
+				// Verify that the PayPal credentials were actually provided.
+				if (!paypalClientId || !paypalSecret) {
+					console.error(process.env.INVALID_PAYPAL_CREDENTIALS);
+					server.close();
+					return;
+				}
+
+				// Attempt to setup a PayPal client.
+				try {
+					PAYPAL_CLIENT = new paypal.core.PayPalHttpClient(new paypal.core.SandboxEnvironment(paypalClientId, paypalSecret));
+
+				// Verify that we were actually able to get PayPal access.
+				} catch (error) {
+					console.error(process.env.PAYPAL_SETUP_ERROR, error);
+					server.close();
+					return;
+				}
 			}
 
-			// Attempt to retrieve a Paypal access token.
+			// Attempt to establish connection to the RDS instance.
 			try {
-				var paypalResponse = await requestPromise({
-					method: 'POST',
-			    uri: "https://api.sandbox.paypal.com/v1/oauth2/token",
-			    headers: {
-		        "Accept": "application/json",
-		        "Accept-Language": "en_US",
-		        "content-type": "application/x-www-form-urlencoded"
-			    },
-			    auth: {
-				    'user': paypalClientId,
-				    'pass': paypalSecret
-				  },
-				  form: {
-			    	"grant_type": "client_credentials"
-				  }
+				DATABASE_CONNECTION = await mysql.createConnection({
+					host: process.env.DATABASE_HOST,
+					user: process.env.DATABASE_USER,
+					password: process.env.DATABASE_PASSWORD,
+					port: process.env.DATABASE_PORT,
+					database: process.env.DATABASE,
+					timeout: process.env.TIMEOUT
 				});
-				paypalResponse = JSON.parse(paypalResponse);
-				PAYPAL_ADMIN_ACCESS_TOKEN = paypalResponse['access_token'];
 
-				// Setup the Paypal client connection.
-				PAYPAL_CLIENT = new paypal.core.PayPalHttpClient(new paypal.core.SandboxEnvironment(paypalClientId, paypalSecret));
-
-			// Verify that we were actually able to get Paypal access.
+			// Catch any errors when establishing connection to the RDS instance.
 			} catch (error) {
 				console.error(error);
-				console.error('Unable to log into Paypal. Check your credentials.');
-				server.close();
-				return;
+				DATABASE_CONNECTION.end();
 			}
 
-		// Verify that we were actually able to login.
+		// Verify that we were actually able to log into Enjin.
 		} catch (error) {
-			console.error(error);
-			console.error('Unable to log in as Enjin administrator. Check your credentials.');
+			console.error(process.env.ENJIN_SETUP_ERROR, error);
 			server.close();
 			return;
 		}
 
-	// Verify that we were actually able to login.
+	// Verify that we were actually able to log into the game.
 	} catch (error) {
-		console.error(error);
-		console.error('Unable to log in as Dissolution administrator. Check your credentials.');
+		console.error(util.format(process.env.GAME_SETUP_ERROR, APPLICATION), error);
 		server.close();
 		return;
 	}
 
 	// Setup completed.
-	console.log('... Dissolution item exchange server listening on port 3000.');
+	console.log(util.format(process.env.SETUP_COMPLETED, APPLICATION, EXPRESS_PORT));
 });
 
-// A helper function to verify the Dissolution access token.
+// A helper function to verify the game's access token.
 function getKey (header, callback) {
-	dissolutionClient.getSigningKey(header.kid, function (error, key) {
-		var signingKey = key.publicKey || key.rsaPublicKey;
+	gameClient.getSigningKey(header.kid, function (error, key) {
+		if (error) {
+			console.error(process.env.SIGNING_KEY_RETRIEVAL_ERROR, error);
+		}
+		let signingKey = key.publicKey || key.rsaPublicKey;
 		callback(null, signingKey);
 	});
 };
 
-// Validate user login and handle appropriate routing.
-app.get('/', function (req, res) {
+// A helper function to gate particular endpoints behind a valid game login.
+function loginValidator (req, res, onValidLogin) {
+	let gameToken = req.cookies.gameToken;
+	if (gameToken === undefined || gameToken === 'undefined') {
+		res.render('login', {
+			error: 'null',
+			applicationName: APPLICATION
+		});
 
-	// If the user does not have a valid access cookie, prompt them for login.
-	var dissolutionToken = req.cookies.dissolutionToken;
-	if (dissolutionToken === undefined || dissolutionToken === 'undefined') {
-		res.render('login', { error : 'null' });
-
-	// Otherwise, verify the correctness of the access token.
+	// Otherwise, verify the correctness of the game's access token.
 	} else {
-		jwt.verify(dissolutionToken, getKey, function (error, decoded) {
+		jwt.verify(gameToken, getKey, function (error, decoded) {
 			if (error) {
 				res.render('login', {
-					error : "\'Your access token cannot be verified. Please log in again.\'"
+					error: process.env.GAME_COULD_NOT_LOGIN_ERROR,
+					applicationName: APPLICATION
 				});
 			} else {
-				res.render('dashboard', { paypalClientId : process.env.PAYPAL_CLIENT_ID });
+				onValidLogin(gameToken, decoded);
 			}
 		});
 	}
-});
+};
+
+// TODO: move this function into a dedicated pair of lambda functions.
+// TODO: treat ascension like just one more service in this list.
+// A helper function to retrieve the set of services that are for sale.
+async function getServiceMap (serviceIdFilter) {
+	let databaseName = process.env.DATABASE;
+	let sql = util.format(process.env.AVAILABLE_SERVICES_QUERY, databaseName, databaseName, databaseName);
+
+	// As an optimization, only check for item sales against a given filter.
+	let serviceIdList = '';
+	for (let i = 0; i < serviceIdFilter.length; i++) {
+		let serviceId = serviceIdFilter[i];
+		serviceIdList += (serviceId + ',');
+	}
+	serviceIdList = serviceIdList.slice(0, -1);
+	let values = [ serviceIdList ];
+
+	// Return a map of the items being sold.
+	let rows = await DATABASE_CONNECTION.query(sql, values);
+	let serviceMap = new Map();
+	for (let i = 0; i < rows.length; i++) {
+		let row = rows[i];
+		serviceMap.set(row.serviceId, row);
+	}
+	return serviceMap;
+};
+
+// Validate whether a user has logged in and handle appropriate routing.
+app.get('/', asyncMiddleware(async (req, res, next) => {
+	loginValidator(req, res, function (gameToken, decoded) {
+		res.render('dashboard', {
+			applicationName: APPLICATION,
+			gameInventoryUri: process.env.GAME_INVENTORY_URI,
+			gameMetadataUri: process.env.GAME_METADATA_URI,
+			gameProfileUri: process.env.GAME_PROFILE_URI,
+			paypalClientId: process.env.PAYPAL_CLIENT_ID
+		});
+	});
+}));
 
 // Handle visitors logging in through the web app.
 app.post('/login', asyncMiddleware(async (req, res, next) => {
+	let username = req.body.username;
+	let password = req.body.password;
 
-	// Retrieve the username and password from our request body.
-	var username = req.body.username;
-	var password = req.body.password;
-
-	// Return an appropriate error message if these fields are not provided.
+	// Return an appropriate error message if credentials are not provided.
 	if (!username || !password) {
-		res.render('login', { error : "\'You must provide valid login details.\'" });
+		res.render('login', {
+			error: process.env.NO_LOGIN_DETAILS,
+			applicationName: APPLICATION
+		});
 		return;
 	}
 
 	// Otherwise, attempt to log the user in.
 	try {
-		const postData = JSON.stringify({
-			username : username,
-			password : password
+		const userLoginData = JSON.stringify({
+			username: username,
+			password: password
 		});
-		var loginResponse = await requestPromise({
+		let loginResponse = await requestPromise({
 			method: 'POST',
-			uri: 'https://api.dissolution.online/core/master/login/',
+			uri: process.env.GAME_LOGIN_URI,
 			headers: {
 				'Accept': 'application/json',
 				'Content-Type': 'application/json',
-				'Content-Length': postData.length
+				'Content-Length': userLoginData.length
 			},
-			body: postData
+			body: userLoginData
 		});
 		loginResponse = JSON.parse(loginResponse);
 
 		// If the access token is valid, stash it as a cookie and redirect the user.
-		var accessToken = loginResponse['access_token'];
-		res.cookie('dissolutionToken', accessToken, { maxAge: 9000000000, httpOnly: false });
-		res.redirect("/");
+		let accessToken = loginResponse['access_token'];
+		res.cookie('gameToken', accessToken, { maxAge: 9000000000, httpOnly: false });
+		res.redirect('/');
 
 	// If we were unable to log the user in, notify them.
 	} catch (error) {
-		console.error(error);
-		res.render('login', { error : "\'Unable to login with that username or password.\'" });
-		return;
+		console.error(process.env.USER_UNABLE_TO_LOGIN, error);
+		res.render('login', {
+			error: process.env.USER_UNABLE_TO_LOGIN,
+			applicationName: APPLICATION
+		});
 	}
 }));
 
-// Handle visitors logging out by removing the access token.
-app.post("/logout", function (req, res) {
-	res.clearCookie('dissolutionToken');
+// Handle visitors logging out by removing their access token.
+app.post('/logout', function (req, res) {
+	res.clearCookie('gameToken');
 	res.redirect('/');
 });
 
 // A helper function to try to find the user's existing identity and send their inventory to the client.
-async function sendStatusToClient(client, email, res) {
+async function sendStatusToClient (client, email, res) {
 	try {
 		const enjinSearchData = JSON.stringify({
-			appId : process.env.DISSOLUTION_APP_ID
+			appId: process.env.GAME_APP_ID
 		});
-		const enjinSearchMutation =
-		`query getAppMembers($appId : Int) {
-		  result: EnjinApp(id: $appId) {
-		    identities {
-		      ethereum_address
-		      linking_code
-		      linking_code_qr
-		      user {
-		        email
-		      }
-		    }
-		  }
-		}
-		`;
-		var enjinSearchResponse = await client.request(enjinSearchMutation, enjinSearchData);
+		let enjinSearchResponse = await client.request(process.env.ENJIN_SEARCH_MUTATION, enjinSearchData);
 
 		// Find the user's address or linking code for this app.
-		var userAddress = "0x0000000000000000000000000000000000000000";
-		var userLinkingCode = null;
-		var userLinkingCodeQR = "";
-		var userIdentities = enjinSearchResponse.result.identities;
-		for (var i = 0; i < userIdentities.length; i++) {
-			var identity = userIdentities[i];
+		let userAddress = '0x0000000000000000000000000000000000000000';
+		let userLinkingCode = null;
+		let userLinkingCodeQR = '';
+		let userIdentities = enjinSearchResponse.result.identities;
+		for (let i = 0; i < userIdentities.length; i++) {
+			let identity = userIdentities[i];
 			if (identity.user['email'] === email) {
 				userAddress = identity['ethereum_address'];
 				userLinkingCode = identity['linking_code'];
@@ -308,386 +332,408 @@ async function sendStatusToClient(client, email, res) {
 		}
 
 		// If the user is linked, send their address and inventory.
-		if (userLinkingCode === null || userLinkingCode === "null") {
+		if (userLinkingCode === null || userLinkingCode === 'null') {
 			try {
 				const enjinInventoryData = JSON.stringify({
-					address : userAddress
+					address: userAddress
 				});
-				const enjinInventoryQuery =
-				`query getItemBalances($address: String!) {
-					result: EnjinIdentities(ethereum_address: $address) {
-						tokens(include_creator_tokens: true) {
-							token_id
-							app_id
-							name
-							balance
-							index
-							itemURI
-						}
-					}
-				}`;
-				var enjinInventoryResponse = await client.request(enjinInventoryQuery, enjinInventoryData);
+				let enjinInventoryResponse = await client.request(process.env.ENJIN_INVENTORY_QUERY, enjinInventoryData);
 
 				// Process and return the user's inventory to the dashboard.
-				var dissolutionInventory = []
-				var tokens = enjinInventoryResponse.result[0].tokens;
-				for (var i = 0; i < tokens.length; i++) {
-					var token = tokens[i];
-					if (token['app_id'] === parseInt(process.env.DISSOLUTION_APP_ID)) {
-						dissolutionInventory.push(token);
+				let gameInventory = [];
+				let tokens = enjinInventoryResponse.result[0].tokens;
+				for (let i = 0; i < tokens.length; i++) {
+					let token = tokens[i];
+					if (token['app_id'] === parseInt(process.env.GAME_APP_ID)) {
+						gameInventory.push(token);
 					}
 				}
-				res.send({ status : 'LINKED', address : userAddress, inventory: dissolutionInventory });
+				res.send({ status: 'LINKED', address: userAddress, inventory: gameInventory });
 
 			// Notify the client if we failed to obtain an inventory.
 			} catch (error) {
-				console.error(error);
-				res.send({ status : 'ERROR', message : 'Could not retrieve the user\'s inventory.' });
+				console.error(process.env.INVENTORY_RETRIEVAL_FAILED, error);
+				res.send({ status: 'ERROR', message: process.env.INVENTORY_RETRIEVAL_FAILED });
 			}
 
 		// Otherwise, notify the user that they must link.
 		} else {
-			res.send({ status : 'MUST_LINK', code : userLinkingCode, qr: userLinkingCodeQR });
+			res.send({ status: 'MUST_LINK', code: userLinkingCode, qr: userLinkingCodeQR });
 		}
 
 	// We could not actually find the user's existing identity.
 	} catch (error) {
-		console.error(error);
-		res.send({ status : 'ERROR', message : 'Could not find the user\'s existing identity.' });
+		console.error(process.env.EXISTING_ENJIN_IDENTITY_FAILED, error);
+		res.send({ status: 'ERROR', message: process.env.EXISTING_ENJIN_IDENTITY_FAILED });
 	}
-}
+};
 
 // Handle a user requesting to connect to Enjin.
 app.post('/connect', asyncMiddleware(async (req, res, next) => {
+	loginValidator(req, res, async function (gameToken, decoded) {
+		try {
+			let profileResponse = await requestPromise({
+				method: 'GET',
+				uri: process.env.GAME_PROFILE_URI,
+				headers: {
+					'Accept': 'application/json',
+					'Content-Type': 'application/json',
+					'Authorization': 'Bearer ' + gameToken
+				}
+			});
+			profileResponse = JSON.parse(profileResponse);
 
-	// Redirect the user to login if they are not authenticated.
-	var dissolutionToken = req.cookies.dissolutionToken;
-	if (dissolutionToken === undefined || dissolutionToken === 'undefined') {
-		res.render('login', { error : 'null' });
+			// Establish our application's client for talking with Enjin.
+			let enjinPlatformUrl = process.env.ENJIN_PLATFORM_URL;
+			let email = profileResponse.email;
+			let client = new GraphQLClient(enjinPlatformUrl, {
+				headers: {
+					'Authorization': 'Bearer ' + ENJIN_ADMIN_ACCESS_TOKEN,
+					'X-App-Id': process.env.GAME_APP_ID
+				}
+			});
 
-	// Otherwise, verify the correctness of the access token.
-	} else {
-		jwt.verify(dissolutionToken, getKey, async function (error, decoded) {
-			if (error) {
-				res.render('login', {
-					error : "\'Your access token cannot be verified. Please log in again.\'"
+			// Send the user an invitation to Enjin.
+			try {
+				const enjinInviteData = JSON.stringify({
+					email: email
 				});
+				await client.request(process.env.ENJIN_INVITE_MUTATION, enjinInviteData);
+				await sendStatusToClient(client, email, res);
 
-			// If the access token is correct, retrieve the user's email.
-			} else {
-				try {
-					var profileResponse = await requestPromise({
-						method: 'GET',
-						uri: 'https://api.dissolution.online/core/master/profile/',
-						headers: {
-							'Accept': 'application/json',
-							'Content-Type': 'application/json',
-							'Authorization': 'Bearer ' + dissolutionToken
-						}
-					});
-					profileResponse = JSON.parse(profileResponse);
+			// Handle a user who could not be invited because they are already registered to the app.
+			} catch (error) {
+				if (error.response.errors[0].message === process.env.ENJIN_ALREADY_INVITED_ERROR) {
+					await sendStatusToClient(client, email, res);
 
-					// Establish our application's client for talking with Enjin.
-					var enjinPlatformUrl = process.env.ENJIN_PLATFORM_URL;
-					var email = profileResponse.email;
-					var client = new GraphQLClient(enjinPlatformUrl, { headers : {
-						"Authorization" : 'Bearer ' + ENJIN_ADMIN_ACCESS_TOKEN,
-						"X-App-Id" : process.env.DISSOLUTION_APP_ID
-					} });
-
-					// Send the user an invitation to Enjin.
-					try {
-						const enjinInviteData = JSON.stringify({
-							email : email
-						});
-						const enjinInviteMutation =
-						`mutation inviteUser($email: String!) {
-							UpdateEnjinApp(invite: {
-								email: $email
-							}) {
-								id
-							}
-						}`;
-						var enjinInviteResponse = await client.request(enjinInviteMutation, enjinInviteData);
-						await sendStatusToClient(client, email, res);
-
-					// Handle a user who could not be invited because they are already registered to the app.
-					} catch (error) {
-						if (error.response.errors[0].message === "Bad Request - UpdateEnjinApp : This user already has an identity for this app.") {
-							await sendStatusToClient(client, email, res);
-
-						// Otherwise, we've encountered an unknown error and fail.
-						} else {
-							console.error(error);
-							res.send({ status : 'ERROR', message : 'Unknown error occurred when trying to invite the user to Enjin.' });
-							return;
-						}
-					}
-
-				// If we are unable to retrieve the user's profile, log an error and notify them.
-				} catch (error) {
-					console.error(error);
-					res.render('login', { error : "\'Unable to retrieve your profile information.\'" });
+				// Otherwise, we've encountered an unknown error and fail.
+				} else {
+					console.error(process.env.UNKNOWN_ERROR, error);
+					res.send({ status: 'ERROR', message: process.env.UNKNOWN_ERROR });
 					return;
 				}
 			}
-		});
-	}
+
+		// If we are unable to retrieve the user's profile, log an error and notify them.
+		} catch (error) {
+			console.error(process.env.GAME_UNABLE_TO_RETRIEVE_PROFILE, error);
+			res.render('login', {
+				error: process.env.GAME_UNABLE_TO_RETRIEVE_PROFILE,
+				applicationName: APPLICATION
+			});
+		}
+	});
 }));
 
-// Handle a user approving the Paypal transaction for ascension.
-app.post('/approve', asyncMiddleware(async (req, res, next) => {
+// A helper function to retrieve the next available order ID from the database.
+async function getNextOrderId () {
+	let sql = process.env.GET_NEXT_ORDER_ID;
+	let rows = await DATABASE_CONNECTION.query(sql);
+	let orderId = rows[0]['AUTO_INCREMENT'];
+	return orderId;
+};
 
-	// Get the order ID from the request body.
-	const orderID = req.body.orderID;
-
-	// Call PayPal to capture the order.
-	const captureRequest = new paypal.orders.OrdersCaptureRequest(orderID);
-	captureRequest.requestBody({});
-
-	try {
-		const capture = await PAYPAL_CLIENT.execute(captureRequest);
-
-		// Save the capture ID to your database. Implement logic to save capture to your database for future reference.
-		const captureID = capture.result.purchase_units[0].payments.captures[0].id;
- 		// await database.saveCaptureID(captureID);
-		console.log(captureID);
-
-	} catch (err) {
-
-		// Handle any errors from the call.
-		console.error(err);
-		return res.send(500);
-	}
-
-	// Call PayPal to get the transaction details.
-  let orderRequest = new paypal.orders.OrdersGetRequest(orderID);
-
-  let order;
-  try {
-    order = await PAYPAL_CLIENT.execute(orderRequest);
-  } catch (err) {
-
-    // Handle any errors from the call.
-    console.error(err);
-    return res.send(500);
-  }
-
-  // Validate the transaction details are as expected.
-  if (order.result.purchase_units[0].amount.value !== '1.00') {
-    return res.send(400);
-  }
-
-  // Save the transaction in your database
-  // await database.saveTransaction(orderID);
-	console.log(orderID);
-
-  // Return a successful response to the client.
-  return res.send(200);
-}));
-
-// Handle a user requesting to ascend their items.
+// Handle a user requesting to complete a purchase.
 app.post('/checkout', asyncMiddleware(async (req, res, next) => {
+	loginValidator(req, res, async function (gameToken, decoded) {
+		try {
+			let profileResponse = await requestPromise({
+				method: 'GET',
+				uri: process.env.GAME_PROFILE_URI,
+				headers: {
+					'Accept': 'application/json',
+					'Content-Type': 'application/json',
+					'Authorization': 'Bearer ' + gameToken
+				}
+			});
+			profileResponse = JSON.parse(profileResponse);
+			let userId = profileResponse.userId;
+			let requestedServices = req.body.requestedServices;
 
-	// Redirect the user to login if they are not authenticated.
-	var dissolutionToken = req.cookies.dissolutionToken;
-	if (dissolutionToken === undefined || dissolutionToken === 'undefined') {
-		res.render('login', { error : 'null' });
+			// Retrieve the services that are available for sale.
+			let serviceIdFilter = [];
+			for (let i = 0; i < requestedServices.length; i++) {
+				let service = requestedServices[i];
+				let serviceId = service.id;
+				if (serviceId !== 'ASCENSION') {
+					serviceIdFilter.push(serviceId);
+				}
+			};
+			let availableServices = await getServiceMap(serviceIdFilter);
 
-	// Otherwise, verify the correctness of the access token.
-	} else {
-		jwt.verify(dissolutionToken, getKey, async function (error, decoded) {
-			if (error) {
-				res.render('login', {
-					error : "\'Your access token cannot be verified. Please log in again.\'"
-				});
+			// Calculate the cost for the services that a user is requesting to buy.
+			let totalCost = 0;
+			let ascensionReadyItems = new Map();
+			let confirmedToPurchaseItems = [];
+			for (let i = 0; i < requestedServices.length; i++) {
+				let service = requestedServices[i];
+				let serviceId = service.id;
+				let requestedAmount = service.amount;
 
-			// If the access token is correct, retrieve the user's profile information.
-			} else {
-				try {
-					var profileResponse = await requestPromise({
-						method: 'GET',
-						uri: 'https://api.dissolution.online/core/master/profile/',
-						headers: {
-							'Accept': 'application/json',
-							'Content-Type': 'application/json',
-							'Authorization': 'Bearer ' + dissolutionToken
-						}
-					});
-					profileResponse = JSON.parse(profileResponse);
-					var userId = profileResponse.userId;
+				// Ascension is a fairly-complicated service that uses its own supply options so we handle that separately.
+				if (serviceId === 'ASCENSION') {
+					if (!process.env.ASCENSION_ENABLED) {
+						res.send({ status: 'ERROR', message: process.env.ASCENSION_DISABLED_ERROR });
+						return;
+					}
+					let checkoutItems = service.checkoutItems;
 
 					// Try to retrieve the user's inventory.
 					try {
-						var inventoryResponse = await requestPromise({
+						let inventoryResponse = await requestPromise({
 							method: 'GET',
-							uri: 'https://api.dissolution.online/core/master/inventory/',
+							uri: process.env.GAME_INVENTORY_URI,
 							headers: {
 								'Accept': 'application/json',
 								'Content-Type': 'application/json',
-								'Authorization': 'Bearer ' + dissolutionToken
+								'Authorization': 'Bearer ' + gameToken
 							}
 						});
 						inventoryResponse = JSON.parse(inventoryResponse);
-						var inventory = inventoryResponse.inventory;
+						let inventory = inventoryResponse.inventory;
 
 						// Create an accessible cache of inventory data.
-						var inventoryMap = {};
-						for (var i = 0; i < inventory.length; i++) {
-							var item = inventory[i];
+						let inventoryMap = {};
+						for (let i = 0; i < inventory.length; i++) {
+							let item = inventory[i];
 							if (item.amount > 0) {
 								inventoryMap[item.itemId] = item.amount;
 							}
 						}
 
 						// Retrieve the user's list of items to ascend.
-						var clearToCheckout = true;
-						var itemCount = 0;
-						var checkoutItems = req.body.checkoutItems;
-						var itemsToMint = {};
+						let clearToCheckout = true;
+						let itemCount = 0;
+						let itemsToMint = new Map();
 						if (checkoutItems) {
-							for (var itemId in checkoutItems) {
-								var requestedAmount = checkoutItems[itemId];
+							for (let itemId in checkoutItems) {
+								let requestedAmount = checkoutItems[itemId];
 								if (requestedAmount <= 0) {
 									continue;
 								}
 
-								var availableAmount = inventoryMap[itemId];
+								// Validate that the user owns the items they wish to ascend.
+								let availableAmount = inventoryMap[itemId];
 								if (availableAmount < requestedAmount) {
 									clearToCheckout = false;
 								} else {
 									itemCount += 1;
-									itemsToMint[itemId] = requestedAmount;
+									itemsToMint.set(itemId, requestedAmount);
 								}
 							}
 
-							// Error if the user has not chosen to checkout at least one item.
+							// Throw an error if the user has not chosen to checkout at least one item.
 							if (itemCount < 1) {
-								res.send({ status : 'ERROR', message : 'You must specify at least one item to checkout.' });
+								res.send({ status: 'ERROR', message: process.env.EMPTY_ASCENSION_ERROR });
 								return;
 							}
 
 							// If the user is not clear to checkout, they might not have the items to cover the transaction.
 							if (!clearToCheckout) {
-								res.send({ status : 'ERROR', message : 'You do not have these items available to checkout with.' });
+								res.send({ status: 'ERROR', message: process.env.ITEMS_NOT_OWNED_ERROR });
 								return;
 							}
 
-							// Retrieve the user's chosen payment method.
-							var paypalEnabled = process.env.PAYPAL_ENABLED;
-							var coingateEnabled = process.env.COINGATE_ENABLED;
-							var paymentMethod = req.body.paymentMethod;
-							if (paymentMethod === 'PAYPAL') {
-
-								// If Paypal is not enabled, notify the user as such.
-								if (!paypalEnabled) {
-									res.send({ status : 'ERROR', message : 'PayPal is not enabled as a payment option.' });
-									return;
-								}
-
-								// Charge the user for the items; call PayPal to set up a transaction.
-							  const request = new paypal.orders.OrdersCreateRequest();
-							  request.prefer("return=representation");
-							  request.requestBody({
-							    intent: 'CAPTURE',
-							    purchase_units: [{
-							      amount: {
-							        currency_code: 'USD',
-							        value: itemCount
-							      }
-							    }]
-							  });
-
-							  let order;
-							  try {
-							    order = await PAYPAL_CLIENT.execute(request);
-							  } catch (error) {
-
-							    // Handle any errors from the call.
-							    console.error(error);
-							    return res.send(500);
-							  }
-
-							  // Return a successful response to the client with the order ID.
-							  res.status(200).json({
-							    orderID: order.result.id
-							  });
-
-							// Attempt to process the payment using CoinGate as a provider.
-							} else if (paymentMethod === 'COINGATE') {
-								var coingateToken = process.env.COINGATE_TOKEN;
-								try {
-									var orderBody = JSON.stringify({
-										order_id: 'Dissolution-' + uuidv1(),
-										price_amount: itemCount + '.00',
-										price_currency: 'USD',
-										receive_currency: 'USDT',
-										title: 'Mint your Items to Enjin',
-										description: 'Accepting this payment will mint your Dissolution items as blockchain-backed assets on Enjin.',
-										callback_url: process.env.BASE_URL + 'coingate-callback',
-										cancel_url: process.env.BASE_URL + 'coingate-cancel',
-										success_url: process.env.BASE_URL + 'coingate-success',
-										token: userId
-									});
-									var coingateOrder = await requestPromise({
-										method: 'POST',
-										uri: 'https://api-sandbox.coingate.com/v2/orders/',
-										headers: {
-											'Authorization': 'Token ' + coingateToken,
-											'Accept': 'application/json',
-											'Content-Type': 'application/json',
-											'Content-Length': orderBody.length
-										},
-										body: orderBody
-									});
-									coingateOrderResponse = JSON.parse(coingateOrder);
-
-									// Tell the client which URL to handle payment with.
-									res.send({ status : 'COINGATE_PAY', paymentUrl : coingateOrderResponse['payment_url'] });
-
-								// Return an error about an issue with creating the CoinGate order.
-								} catch (error) {
-									console.log(error);
-									res.send({ status : 'ERROR', message : 'The CoinGate order could not be created.' });
-									return;
-								}
-							}
+							// All hurdles have been passed for this ascension attempt.
+							totalCost += (itemCount * process.env.ASCENSION_COST);
+							ascensionReadyItems = itemsToMint;
 
 						// Return an error regarding an empty set of checkout items.
 						} else {
-							res.send({ status : 'ERROR', message : 'You must specify items to checkout.' });
+							res.send({ status: 'ERROR', message: process.env.NO_ASCENSION_ITEMS_CHOSEN });
 							return;
 						}
 
 					// If we are unable to retrieve the user's inventory, log an error and notify them.
 					} catch (error) {
-						console.error(error);
-						res.render('login', { error : "\'Unable to retrieve your inventory information.\'" });
+						console.error(process.env.GAME_UNABLE_TO_RETRIEVE_INVENTORY, error);
+						res.send({ status: 'ERROR', message: process.env.GAME_UNABLE_TO_RETRIEVE_INVENTORY });
 						return;
 					}
 
-				// If we are unable to retrieve the user's profile, log an error and notify them.
-				} catch (error) {
-					console.error(error);
-					res.render('login', { error : "\'Unable to retrieve your profile information.\'" });
+				// Check for the availability of particular services.
+				} else if (availableServices.has(serviceId)) {
+					let serviceInformation = availableServices.get(serviceId);
+					let itemAmount = serviceInformation.amount;
+					let availableItemAmount = serviceInformation.availableForSale;
+
+					// If the service is for sale, make sure it is still in supply.
+					if (itemAmount < availableItemAmount) {
+						res.send({ status: 'ERROR', message: process.env.OUT_OF_STOCK });
+						return;
+					}
+
+					// Add this validated service purchase to the total order.
+					let servicePrice = serviceInformation.price;
+					totalCost += (servicePrice * requestedAmount);
+					confirmedToPurchaseItems.push({
+						serviceInformation: serviceInformation,
+						purchasedAmount: requestedAmount
+					});
+
+				// This service is unknown.
+				} else {
+					res.send({ status: 'ERROR', message: process.env.UNKNOWN_SERVICE_REQUESTED });
 					return;
 				}
 			}
-		});
+
+			// Retrieve the user's chosen payment method.
+			let paypalEnabled = process.env.PAYPAL_ENABLED;
+			let paymentMethod = req.body.paymentMethod;
+
+			// If Paypal is not enabled, notify the user as such.
+			if (paymentMethod === 'PAYPAL') {
+				if (!paypalEnabled) {
+					res.send({ status: 'ERROR', message: process.env.PAYPAL_DISABLED_ERROR });
+					return;
+				}
+
+				// Prepare a list of all purchased services to provide to PayPal.
+				let purchasedItemsList = [];
+				for (let i = 0; i < confirmedToPurchaseItems.length; i++) {
+					let service = confirmedToPurchaseItems[i];
+					let serviceInformation = service.serviceInformation;
+					let purchasedAmount = service.purchasedAmount;
+					let metadata = JSON.parse(serviceInformation.metadata);
+					let itemName = metadata.name;
+					let itemDescription = metadata.description;
+					let itemPrice = serviceInformation.price;
+					let itemAmount = serviceInformation.amount;
+					purchasedItemsList.push({
+						name: (itemAmount + ' x ' + itemName),
+						description: itemDescription,
+						unit_amount: {
+							currency_code: 'USD',
+							value: itemPrice
+						},
+						quantity: purchasedAmount,
+						category: 'ITEM_PURCHASE'
+					});
+				}
+
+				// Add an item to the list for tracking ascension, if present.
+				if (ascensionReadyItems.size > 0) {
+					purchasedItemsList.push({
+						name: (ascensionReadyItems.size + ' x Ascension'),
+						description: process.env.ASCENSION_DESCRIPTION,
+						unit_amount: {
+							currency_code: 'USD',
+							value: process.env.ASCENSION_COST
+						},
+						quantity: ascensionReadyItems.size,
+						category: 'ASCENSION'
+					});
+				}
+
+				// Charge the user for the items; call PayPal to set up a transaction.
+				let referenceOrderId = await getNextOrderId();
+				const request = new paypal.orders.OrdersCreateRequest();
+				request.prefer('return=representation');
+				let paypalRequestBody = {
+					intent: 'CAPTURE',
+					application_context: {
+						brand_name: process.env.APPLICATION
+					},
+					purchase_units: [{
+						reference_id: referenceOrderId,
+						description: process.env.PAYPAL_PURCHASE_DESCRIPTION,
+						amount: {
+							currency_code: 'USD',
+							value: totalCost
+						},
+						items: purchasedItemsList
+					}]
+				};
+				request.requestBody(paypalRequestBody);
+
+				// Try to request that this order be fulfilled using PayPal.
+				let order;
+				try {
+					order = await PAYPAL_CLIENT.execute(request);
+				} catch (error) {
+					console.error(process.env.PAYPAL_ORDER_CREATION_ERROR, error);
+					return res.sendStatus(500);
+				}
+
+				// Return a successful response to the client with the order ID.
+				res.sendStatus(200).json({
+					orderID: order.result.id
+				});
+
+				// Create an entry in our database for this order.
+				let databaseName = process.env.DATABASE;
+				let sql = util.format(process.env.INSERT_ORDER_DETAILS, databaseName);
+				let values = [ userId, totalCost, 'PAYPAL', JSON.stringify(paypalRequestBody) ];
+				await DATABASE_CONNECTION.query(sql, values);
+
+				// Create an entry to flag this order as pending.
+				sql = util.format(process.env.INSERT_ORDER_STATUS, databaseName);
+				values = [ referenceOrderId, 0, 'PENDING' ];
+				await DATABASE_CONNECTION.query(sql, values);
+
+			// If the user has chosen an unknown payment option, notify them.
+			} else {
+				res.send({ status: 'ERROR', message: process.env.UNKNOWN_PAYMENT_PROCESSOR });
+				return;
+			}
+
+		// If we are unable to retrieve the user's profile, log an error and notify them.
+		} catch (error) {
+			console.error(process.env.GAME_UNABLE_TO_RETRIEVE_PROFILE, error);
+			res.render('login', {
+				error: process.env.GAME_UNABLE_TO_RETRIEVE_PROFILE,
+				applicationName: APPLICATION
+			});
+		}
+	});
+}));
+
+// Handle a user approving a PayPal transaction.
+app.post('/approve', asyncMiddleware(async (req, res, next) => {
+	let paypalEnabled = process.env.PAYPAL_ENABLED;
+	if (!paypalEnabled) {
+		res.sendStatus(400);
+		return;
 	}
-}));
+	const orderId = req.body.orderID;
 
-// Handle a callback event from CoinGate.
-app.post('/coingate-callback', asyncMiddleware(async (req, res, next) => {
-	console.log('callback', req.body);
-}));
+	// Try to capture the PayPal order and log the status in our database.
+	const request = new paypal.orders.OrdersCaptureRequest(orderId);
+	request.requestBody({});
+	try {
+		const capture = await PAYPAL_CLIENT.execute(request);
+		let orderId = capture['purchase_units'][0]['reference_id'];
+		let databaseName = process.env.DATABASE;
+		let sql = util.format(process.env.INSERT_ORDER_STATUS, databaseName);
+		let values = [ orderId, 1, JSON.stringify(capture) ];
+		await DATABASE_CONNECTION.query(sql, values);
 
-// Handle a success event from CoinGate.
-app.post('/coingate-success', asyncMiddleware(async (req, res, next) => {
-	console.log('success', req.body);
-}));
+		// Retrieve the cost of a prior order.
+		sql = util.format(process.env.GET_ORDER_COST, databaseName);
+		values = [ orderId ];
+		let rows = await DATABASE_CONNECTION.query(sql, values);
+		let cost = rows[0].cost;
 
-// Handle a cancel event from CoinGate.
-app.post('/coingate-cancel', asyncMiddleware(async (req, res, next) => {
-	console.log('cancel', req.body);
+		// Verify that the captured transaction is correctly-priced.
+		let transactionStatus = capture['purchase_units'][0].payments.captures[0].status;
+		let transactionCurrency = capture['purchase_units'][0].payments.captures[0].amount['currency_code'];
+		let transactionValue = capture['purchase_units'][0].payments.captures[0].amount.value;
+		if (transactionStatus === 'COMPLETED' && transactionCurrency === 'USD' && parseFloat(transactionValue) >= cost) {
+			res.sendStatus(200);
+
+		// Record this transaction as having failed.
+		} else {
+			console.error(process.env.PAYPAL_ORDER_VERIFICATION_FAILED);
+			sql = util.format(process.env.INSERT_ORDER_STATUS, databaseName);
+			values = [ orderId, 2, JSON.stringify(capture) ];
+			await DATABASE_CONNECTION.query(sql, values);
+			res.sendStatus(400);
+		}
+
+	// Throw an error if we were unable to capture the PayPal order.
+	}	catch (error) {
+		console.error(process.env.PAYPAL_CAPTURE_ERROR, error);
+		res.sendStatus(500);
+	}
 }));

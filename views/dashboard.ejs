@@ -5,7 +5,7 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
-    <title>Dissolution Exchange</title>
+    <title><%= applicationName %> Dashboard</title>
 
     <meta name="description" content="Palm">
     <meta name="author" content="Tim Clancy">
@@ -21,7 +21,7 @@
         <div class="col-md-12">
           <div class="page-header">
             <h1>
-              Dissolution <small>Dashboard</small>
+              <%= applicationName %> <small>Dashboard</small>
             </h1>
           </div>
 
@@ -108,7 +108,6 @@
                 </div>
                 <div class="modal-footer">
                   <button id="mintingCheckoutClose" type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
-                  <button id="coingateButton" type="button" class="btn btn-primary">Checkout with CoinGate</button>
                   <div id="paypal-button-container"></div>
                 </div>
               </div>
@@ -126,6 +125,13 @@
       </div>
     </div>
 
+    <!-- Retrieve variables being passed from the server. -->
+    <script>
+      window.serverData = {};
+      window.serverData.inventoryUri = <%- gameInventoryUri %>;
+      window.serverData.metadataUri = <%- gameMetadataUri %>;
+      window.serverData.profileUri = <%- gameProfileUri %>;
+    </script>
     <script src="https://www.paypal.com/sdk/js?client-id=<%= paypalClientId %>"></script>
     <script src="/js/jquery.min.js"></script>
     <script src="/js/js.cookie.js"></script>

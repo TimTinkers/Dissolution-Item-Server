@@ -1,192 +1,190 @@
+'use strict';
+
 // Store our access token as a constant.
-var DISSOLUTION_TOKEN;
-var USER_ADDRESS;
+let GAME_TOKEN;
+let USER_ADDRESS;
 
 // Track the list of game items which can be ascended.
-var gameItems = [];
-var checkoutItems = {};
+let gameItems = [];
+let checkoutItems = {};
 
 // A helper function to show an error message on the page.
 function showError (errorMessage) {
-	var errorBox = $('#errorBox');
+	let errorBox = $('#errorBox');
 	errorBox.html(errorMessage);
 	errorBox.show();
 };
 
 // A helper function to show a status message on the page.
 function showStatusMessage (statusMessage) {
-	var messageBox = $('#messageBox');
+	let messageBox = $('#messageBox');
 	messageBox.html(statusMessage);
 	messageBox.show();
 };
 
 // Refresh the recent user's inventory.
 async function refreshInventory () {
-
-	// Try to retrieve the user's server inventory.
 	try {
-		var inventoryResponse = await $.ajax({
-			url : 'https://api.dissolution.online/core/master/inventory/',
-			headers: { 'Authorization' : 'Bearer ' + DISSOLUTION_TOKEN }
+		let inventoryResponse = await $.ajax({
+			url: window.serverData.inventoryUri,
+			headers: { 'Authorization': 'Bearer ' + GAME_TOKEN }
 		});
 
 		// Update the list of this player's assets that reside solely on the game database.
-		var updatedListGame = $("<ul id=\"ownedListGame\" style=\"list-style-type:circle\"></ul>");
-		var inventory = inventoryResponse.inventory;
+		let updatedListGame = $('<ul id="ownedListGame" style="list-style-type:circle"></ul>');
+		let inventory = inventoryResponse.inventory;
 		if (inventory.length > 0) {
-			$('#ownedTitleGame').html('You own the game assets from the Dissolution servers:');
+			$('#ownedTitleGame').html('You own the following in-game assets:');
 		}
-		var updatedGameItems = [];
-		for (var i = 0; i < inventory.length; i++) {
-			var item = inventory[i];
-			var itemId = item.itemId;
-			var itemAmount = item.amount;
+		let updatedGameItems = [];
+		for (let i = 0; i < inventory.length; i++) {
+			let item = inventory[i];
+			let itemId = item.itemId;
+			let itemAmount = item.amount;
 
 			// Try to retrieve metadata about each item.
 			try {
-				var itemMetadataResponse = await $.ajax({
-					url : 'https://api.dissolution.online/core/master/item/' + itemId
+				let itemMetadataResponse = await $.ajax({
+					url: window.serverData.metadataUri + itemId
 				});
-				var itemMetadata = itemMetadataResponse.metadata;
-				var itemName = itemMetadata.name;
-				var itemImage = itemMetadata.image;
-				var itemDescription = itemMetadata.description;
+				let itemMetadata = itemMetadataResponse.metadata;
+				let itemName = itemMetadata.name;
+				let itemImage = itemMetadata.image;
+				let itemDescription = itemMetadata.description;
 
 				// Update the actual list for display.
-				updatedListGame.append("<li>" + itemAmount + " x (" + itemId + ") " + itemName + ": " + itemDescription + "</li>");
+				updatedListGame.append('<li>' + itemAmount + ' x (' + itemId + ') ' + itemName + ': ' + itemDescription + '</li>');
 
 				updatedGameItems.push({
-					id : itemId,
-					amount : itemAmount,
-					name : itemName,
-					description : itemDescription,
-					image : itemImage
+					id: itemId,
+					amount: itemAmount,
+					name: itemName,
+					description: itemDescription,
+					image: itemImage
 				});
 
 			// If unable to retrieve an item's metadata, flag such an item.
 			} catch (error) {
-				updatedListGame.append("<li>" + itemAmount + " x (" + itemId + ") - unable to retrieve metadata. </li>");
+				updatedListGame.append('<li>' + itemAmount + ' x (' + itemId + ') - unable to retrieve metadata.</li>');
 			}
 		}
 
 		// Update our list and remove the loading indicator.
 		gameItems = updatedGameItems;
-		$("#ownedListGame").html(updatedListGame.html());
+		$('#ownedListGame').html(updatedListGame.html());
 		$('#gameServerSpinner').remove();
 
 	// If we were unable to retrieve the server inventory, throw error.
 	} catch (error) {
 		showError('Unable to retrieve the server inventory.');
-		$("#ownedListGame").html('Unable to retrieve the server inventory.');
+		$('#ownedListGame').html('Unable to retrieve the server inventory.');
 	}
 
 	// Update the list of this user's Enjin-owned items if they have a valid address.
-	var connectionData = await $.post("/connect");
+	let connectionData = await $.post('/connect');
 	if (connectionData.status === 'LINKED') {
-		var address = connectionData.address;
-		var inventory = connectionData.inventory;
-		$('#enjinMessage').html("Your Ethereum address is " + address);
+		let address = connectionData.address;
+		let inventory = connectionData.inventory;
+		$('#enjinMessage').html('Your Ethereum address is ' + address);
 		if (inventory.length > 0) {
 			$('#ownedTitleEnjin').html('You own the following Enjin ERC-1155 items:');
 		}
 		$('#linkingQR').empty();
 		$('#mintButton').show();
-		var updatedListEnjin = $("<ul id=\"ownedListEnjin\" style=\"list-style-type:circle\"></ul>");
-		for (var i = 0; i < inventory.length; i++) {
-			var item = inventory[i];
-			var itemAmount = item.balance;
-			var itemId = item['token_id'];
-			var itemURI = item.itemURI;
+		let updatedListEnjin = $('<ul id="ownedListEnjin" style="list-style-type:circle"></ul>');
+		for (let i = 0; i < inventory.length; i++) {
+			let item = inventory[i];
+			let itemAmount = item.balance;
+			let itemId = item['token_id'];
+			let itemURI = item.itemURI;
 
 			// Try to retrieve metadata about each item.
 			try {
-				var itemMetadataResponse = await $.get(itemURI);
-				var itemName = itemMetadataResponse.name;
-				var itemImage = itemMetadataResponse.image;
-				var itemDescription = itemMetadataResponse.description;
+				let itemMetadataResponse = await $.get(itemURI);
+				let itemName = itemMetadataResponse.name;
+				let itemImage = itemMetadataResponse.image;
+				let itemDescription = itemMetadataResponse.description;
 
 				// Update the actual list for display.
-				updatedListEnjin.append("<li>" + itemAmount + " x (" + itemId + ") " + itemName + ": " + itemDescription + "</li>");
+				updatedListEnjin.append('<li>' + itemAmount + ' x (' + itemId + ') ' + itemName + ': ' + itemDescription + '</li>');
 
 			// If unable to retrieve an item's metadata, flag such an item.
 			} catch (error) {
-				updatedListEnjin.append("<li>" + itemAmount + " x (" + itemId + ") - unable to retrieve metadata. </li>");
+				updatedListEnjin.append('<li>' + itemAmount + ' x (' + itemId + ') - unable to retrieve metadata.</li>');
 			}
 		}
-		$("#ownedListEnjin").html(updatedListEnjin.html());
+		$('#ownedListEnjin').html(updatedListEnjin.html());
 		$('#enjinSpinner').remove();
 
 	// Otherwise, notify the user that they must link an Enjin address.
 	} else if (connectionData.status === 'MUST_LINK') {
-		var code = connectionData.code;
-		$('#enjinMessage').html("You must link your Enjin wallet to " + code);
-		$('#linkingQR').html("<img src=\"" + connectionData.qr + "\"></img>");
+		let code = connectionData.code;
+		$('#enjinMessage').html('You must link your Enjin wallet to ' + code);
+		$('#linkingQR').html('<img src="' + connectionData.qr + '"></img>');
 		$('#ownedTitleEnjin').html('You do not own any Enjin ERC-1155 items.');
-		$("#ownedListEnjin").empty();
+		$('#ownedListEnjin').empty();
 		$('#mintButton').hide();
 		$('#enjinSpinner').remove();
 
 	// Otherwise, display an error from the server.
 	} else if (connectionData.status === 'ERROR') {
-		var errorBox = $('#errorBox');
+		let errorBox = $('#errorBox');
 		errorBox.html(connectionData.message);
 		errorBox.show();
 
 	// Otherwise, display an error about an unknown status.
 	} else {
-		var errorBox = $('#errorBox');
+		let errorBox = $('#errorBox');
 		errorBox.html('Received unknown message status from the server.');
 		errorBox.show();
 	}
 };
 
 // A function which asynchronously sets up the page.
-var setup = async function (config) {
+let setup = async function (config) {
 	console.log('Setting up page given configuration ...');
 
 	// Assigning delegate to modal event handler.
-	$("#mintingCheckoutContent").on('input', '.input', function (changedEvent) {
-		var itemValue = parseInt($(this).val());
-		var itemId = $(this).attr('itemId');
+	$('#mintingCheckoutContent').on('input', '.input', function (changedEvent) {
+		let itemValue = parseInt($(this).val());
+		let itemId = $(this).attr('itemId');
 		checkoutItems[itemId] = itemValue;
 	});
 
 	// Get the user's access token and identity.
-	DISSOLUTION_TOKEN = Cookies.get('dissolutionToken');
+	GAME_TOKEN = Cookies.get('gameToken');
 
 	// Try to retrieve the user's profile information.
 	try {
-		var profileResponse = await $.ajax({
-			url : 'https://api.dissolution.online/core/master/profile/',
-			headers: { 'Authorization' : 'Bearer ' + DISSOLUTION_TOKEN }
+		let profileResponse = await $.ajax({
+			url: window.serverData.profileUri,
+			headers: { 'Authorization': 'Bearer ' + GAME_TOKEN }
 		});
 
 		// Get all of the profile fields.
-		var userId = profileResponse.userId;
-		var username = profileResponse.username;
-		var email = profileResponse.email;
+		let username = profileResponse.username;
+		let email = profileResponse.email;
 		USER_ADDRESS = profileResponse.lastAddress;
-		var isAdmin = profileResponse.isAdmin;
-		var kills = profileResponse.Kills;
-		var deaths = profileResponse.Deaths;
-		var assists = profileResponse.Assists;
-		var accuracy = profileResponse.Accuracy;
-		var wins = profileResponse.Wins;
-		var losses = profileResponse.Losses;
+		let kills = profileResponse.Kills;
+		let deaths = profileResponse.Deaths;
+		let assists = profileResponse.Assists;
+		let accuracy = profileResponse.Accuracy;
+		let wins = profileResponse.Wins;
+		let losses = profileResponse.Losses;
 
 		// Display the fields to the user.
-		var updatedProfileList = $("<ul id=\"profileInformation\" style=\"list-style-type:circle\"></ul>");
-		updatedProfileList.append("<li>Your username: " + username + "</li>");
-		updatedProfileList.append("<li>Your email: " + email + "</li>");
-		updatedProfileList.append("<li>Your kills: " + kills + "</li>");
-		updatedProfileList.append("<li>Your deaths: " + deaths + "</li>");
-		updatedProfileList.append("<li>Your assists: " + assists + "</li>");
-		updatedProfileList.append("<li>Your accuracy: " + accuracy + "</li>");
-		updatedProfileList.append("<li>Your wins: " + wins + "</li>");
-		updatedProfileList.append("<li>Your losses: " + losses + "</li>");
+		let updatedProfileList = $('<ul id="profileInformation" style="list-style-type:circle"></ul>');
+		updatedProfileList.append('<li>Your username: ' + username + '</li>');
+		updatedProfileList.append('<li>Your email: ' + email + '</li>');
+		updatedProfileList.append('<li>Your kills: ' + kills + '</li>');
+		updatedProfileList.append('<li>Your deaths: ' + deaths + '</li>');
+		updatedProfileList.append('<li>Your assists: ' + assists + '</li>');
+		updatedProfileList.append('<li>Your accuracy: ' + accuracy + '</li>');
+		updatedProfileList.append('<li>Your wins: ' + wins + '</li>');
+		updatedProfileList.append('<li>Your losses: ' + losses + '</li>');
 
 		// Update our list and remove the loading indicator.
-		$("#profileInformation").html(updatedProfileList.html());
+		$('#profileInformation').html(updatedProfileList.html());
 		$('#profileSpinner').remove();
 
 	// If unable to retrieve the user profile information, show an error.
@@ -195,93 +193,62 @@ var setup = async function (config) {
 	}
 
 	// Assign functionality to the item minting button.
-	$("#mintButton").click(async function() {
-		$("#mintingCheckoutContent").empty();
+	$('#mintButton').click(async function () {
+		$('#mintingCheckoutContent').empty();
 		checkoutItems = {};
 		if (gameItems.length > 0) {
-			var updatedModalContent = $("<ul id=\"checkoutList\" style=\"list-style-type:circle\"></ul>");
-			for (var i = 0; i < gameItems.length; i++) {
-				var item = gameItems[i];
-				var itemAmount = item.amount;
-				var itemId = item.id;
-				var itemName = item.name;
+			let updatedModalContent = $('<ul id="checkoutList" style="list-style-type:circle"></ul>');
+			for (let i = 0; i < gameItems.length; i++) {
+				let item = gameItems[i];
+				let itemAmount = item.amount;
+				let itemId = item.id;
+				let itemName = item.name;
 
-				updatedModalContent.append("<li>(" + itemId + ") " + itemName + "\t\t<input id=\"amount-" + itemId + "\" class=\"input\" itemId=\"" + itemId + "\" type=\"number\" value=\"0\" min=\"0\" max=\"" + itemAmount + "\" step=\"1\" style=\"float: right\"/></li>");
+				updatedModalContent.append('<li>(' + itemId + ') ' + itemName + '\t\t<input id="amount-' + itemId + '" class="input" itemId="' + itemId + '" type="number" value="0" min="0" max="' + itemAmount + '" step="1" style="float: right"/></li>');
 			}
-			$("#mintingCheckoutContent").html(updatedModalContent.html());
-
+			$('#mintingCheckoutContent').html(updatedModalContent.html());
 		} else {
-			$("#mintingCheckoutContent").html("You have no items which can be ascended to Enjin at this time.");
+			$('#mintingCheckoutContent').html('You have no items which can be ascended to Enjin at this time.');
 		}
 	});
 
-	// Assign functionality to the modal's Paypal checkout button.
+	// Assign functionality to the modal's PayPal checkout button.
 	paypal.Buttons({
-		createOrder: function() {
-		  return fetch('/checkout', {
-		    method: 'post',
-		    headers: {
-		      'content-type': 'application/json'
-		    },
-				body: JSON.stringify({
-					checkoutItems : checkoutItems,
-					paymentMethod : 'PAYPAL'
-				})
-		  }).then(function(res) {
-		    return res.json();
-		  }).then(function(data) {
-		    return data.orderID;
-		  });
-		},
-		onApprove: function(data) {
-		  return fetch('/approve', {
-				method: 'post',
-		    headers: {
-	      	'content-type': 'application/json'
-		    },
-		    body: JSON.stringify({
-		      orderID: data.orderID
-		    })
-		  }).then(function(res) {
-		    return res.json();
-		  }).then(function(details) {
-		    alert('Transaction funds captured from ' + details.payer_given_name);
+		createOrder: async function () {
+			let data = await $.post('/checkout', {
+				checkoutItems: checkoutItems,
+				paymentMethod: 'PAYPAL'
 			});
+			return data.orderID;
+		},
+
+		// Capture the funds from the transaction and validate approval with server.
+		onApprove: async function (data) {
+			let status = await $.post('/approve', data);
+			if (status === 'OK') {
+				console.log('Transaction completed successfully.');
+			} else {
+				console.error(status, 'Transaction failed.');
+			}
 		}
 	}).render('#paypal-button-container');
 
-	// Assign functionality to the CoinGate purchase button.
-	$("#coingateButton").click(async function() {
-		$.post("/checkout", {
-			checkoutItems : checkoutItems,
-			paymentMethod : 'COINGATE'
-		}, function (data) {
-			if (data.status === 'COINGATE_PAY') {
-				showStatusMessage('Please proceed to ' + data.paymentUrl + ' to complete payment.');
-				var coingatePay = window.open(data.paymentUrl, '_blank');
-				if (coingatePay) {
-					coingatePay.focus();
-				}
-			}
-		});
-	});
-
 	// Assign functionality to the example logout button.
-	$("#logoutButton").click(async function() {
-		$.post("/logout", function (data) {
-			window.location.replace("/");
+	$('#logoutButton').click(async function () {
+		$.post('/logout', function (data) {
+			window.location.replace('/');
 		});
 	});
 
 	// Periodically refresh the user's inventory.
-	var updateStatus = async function () {
+	let updateStatus = async function () {
 		await refreshInventory();
 	};
 	await updateStatus();
-	setInterval(updateStatus, 15000);
+	setInterval(updateStatus, 30000);
 };
 
 // Parse the configuration file and pass to setup.
-$.getJSON("js/config.json", function (config) {
+$.getJSON('js/config.json', function (config) {
 	setup(config);
 });
