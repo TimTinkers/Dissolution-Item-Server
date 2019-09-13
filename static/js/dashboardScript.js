@@ -83,9 +83,9 @@ async function refreshInventory () {
 	// Update the list of this user's Enjin-owned items if they have a valid address.
 	let connectionData = await $.post('/connect');
 	if (connectionData.status === 'LINKED') {
-		let address = connectionData.address;
+		USER_ADDRESS = connectionData.address;
 		let inventory = connectionData.inventory;
-		$('#enjinMessage').html('Your Ethereum address is ' + address);
+		$('#enjinMessage').html('Your Ethereum address is ' + USER_ADDRESS);
 		if (inventory.length > 0) {
 			$('#ownedTitleEnjin').html('You own the following Enjin ERC-1155 items:');
 		}
@@ -215,8 +215,14 @@ let setup = async function (config) {
 	// Assign functionality to the modal's PayPal checkout button.
 	paypal.Buttons({
 		createOrder: async function () {
+			console.log(checkoutItems);
 			let data = await $.post('/checkout', {
-				checkoutItems: checkoutItems,
+				requestedServices: [
+					{
+						id: 'ASCENSION',
+						checkoutItems: checkoutItems
+					}
+				],
 				paymentMethod: 'PAYPAL'
 			});
 			return data.orderID;
@@ -227,6 +233,7 @@ let setup = async function (config) {
 			let status = await $.post('/approve', data);
 			if (status === 'OK') {
 				console.log('Transaction completed successfully.');
+				showStatusMessage('Your purchase was received and is now pending!');
 			} else {
 				console.error(status, 'Transaction failed.');
 			}

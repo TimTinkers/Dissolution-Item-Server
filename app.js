@@ -20,6 +20,7 @@ const gameClient = jwksClient({
 	jwksUri: process.env.GAME_JWKS_URI
 });
 const paypal = require('@paypal/checkout-server-sdk');
+const uuidv1 = require('uuid/v1');
 
 // Express application setup.
 let app = express();
@@ -309,7 +310,7 @@ app.post('/logout', function (req, res) {
 });
 
 // A helper function to try to find the user's existing identity and send their inventory to the client.
-async function sendStatusToClient (client, email, res) {
+async function sendStatusToClient (client, email, userId, res) {
 	try {
 		const enjinSearchData = JSON.stringify({
 			appId: process.env.GAME_APP_ID
@@ -338,6 +339,12 @@ async function sendStatusToClient (client, email, res) {
 					address: userAddress
 				});
 				let enjinInventoryResponse = await client.request(process.env.ENJIN_INVENTORY_QUERY, enjinInventoryData);
+
+				// Update the last address recorded for this user.
+				let databaseName = process.env.DATABASE;
+				let sql = util.format(process.env.UPDATE_LAST_ADDRESS, databaseName);
+				let values = [ userAddress, userId ];
+				await DATABASE_CONNECTION.query(sql, values);
 
 				// Process and return the user's inventory to the dashboard.
 				let gameInventory = [];
@@ -382,6 +389,7 @@ app.post('/connect', asyncMiddleware(async (req, res, next) => {
 				}
 			});
 			profileResponse = JSON.parse(profileResponse);
+			let userId = profileResponse.userId;
 
 			// Establish our application's client for talking with Enjin.
 			let enjinPlatformUrl = process.env.ENJIN_PLATFORM_URL;
@@ -399,12 +407,12 @@ app.post('/connect', asyncMiddleware(async (req, res, next) => {
 					email: email
 				});
 				await client.request(process.env.ENJIN_INVITE_MUTATION, enjinInviteData);
-				await sendStatusToClient(client, email, res);
+				await sendStatusToClient(client, email, userId, res);
 
 			// Handle a user who could not be invited because they are already registered to the app.
 			} catch (error) {
 				if (error.response.errors[0].message === process.env.ENJIN_ALREADY_INVITED_ERROR) {
-					await sendStatusToClient(client, email, res);
+					await sendStatusToClient(client, email, userId, res);
 
 				// Otherwise, we've encountered an unknown error and fail.
 				} else {
@@ -424,14 +432,6 @@ app.post('/connect', asyncMiddleware(async (req, res, next) => {
 		}
 	});
 }));
-
-// A helper function to retrieve the next available order ID from the database.
-async function getNextOrderId () {
-	let sql = process.env.GET_NEXT_ORDER_ID;
-	let rows = await DATABASE_CONNECTION.query(sql);
-	let orderId = rows[0]['AUTO_INCREMENT'];
-	return orderId;
-};
 
 // Handle a user requesting to complete a purchase.
 app.post('/checkout', asyncMiddleware(async (req, res, next) => {
@@ -602,13 +602,13 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 					let itemAmount = serviceInformation.amount;
 					purchasedItemsList.push({
 						name: (itemAmount + ' x ' + itemName),
-						description: itemDescription,
+						description: itemDescription.substring(0, 127),
 						unit_amount: {
 							currency_code: 'USD',
-							value: itemPrice
+							value: (itemPrice * 1.00)
 						},
 						quantity: purchasedAmount,
-						category: 'ITEM_PURCHASE'
+						category: 'DIGITAL_GOODS'
 					});
 				}
 
@@ -616,18 +616,18 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 				if (ascensionReadyItems.size > 0) {
 					purchasedItemsList.push({
 						name: (ascensionReadyItems.size + ' x Ascension'),
-						description: process.env.ASCENSION_DESCRIPTION,
+						description: process.env.ASCENSION_DESCRIPTION.substring(0, 127),
 						unit_amount: {
 							currency_code: 'USD',
-							value: process.env.ASCENSION_COST
+							value: (process.env.ASCENSION_COST * 1.00)
 						},
 						quantity: ascensionReadyItems.size,
-						category: 'ASCENSION'
+						category: 'DIGITAL_GOODS'
 					});
 				}
 
 				// Charge the user for the items; call PayPal to set up a transaction.
-				let referenceOrderId = await getNextOrderId();
+				let referenceOrderId = uuidv1();
 				const request = new paypal.orders.OrdersCreateRequest();
 				request.prefer('return=representation');
 				let paypalRequestBody = {
@@ -640,7 +640,13 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 						description: process.env.PAYPAL_PURCHASE_DESCRIPTION,
 						amount: {
 							currency_code: 'USD',
-							value: totalCost
+							value: (totalCost * 1.00),
+							breakdown: {
+								item_total: {
+									currency_code: 'USD',
+									value: (totalCost * 1.00)
+								}
+							}
 						},
 						items: purchasedItemsList
 					}]
@@ -656,21 +662,30 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 					return res.sendStatus(500);
 				}
 
-				// Return a successful response to the client with the order ID.
-				res.sendStatus(200).json({
-					orderID: order.result.id
-				});
+				// TODO: lock the items in escrow while payment pends.
+				// Format and store the order history to deliver upon later payment.
+				let serializableAscensionMap = {};
+				for (let itemId of ascensionReadyItems.keys()) {
+					serializableAscensionMap[itemId] = ascensionReadyItems.get(itemId);
+				}
+				let gamePurchaseDetails = { purchasedItems: confirmedToPurchaseItems, ascendingItems: serializableAscensionMap };
+				paypalRequestBody.gamePurchaseDetails = gamePurchaseDetails;
 
 				// Create an entry in our database for this order.
 				let databaseName = process.env.DATABASE;
 				let sql = util.format(process.env.INSERT_ORDER_DETAILS, databaseName);
-				let values = [ userId, totalCost, 'PAYPAL', JSON.stringify(paypalRequestBody) ];
+				let values = [ referenceOrderId, userId, totalCost, 'PAYPAL', JSON.stringify(paypalRequestBody) ];
 				await DATABASE_CONNECTION.query(sql, values);
 
 				// Create an entry to flag this order as pending.
 				sql = util.format(process.env.INSERT_ORDER_STATUS, databaseName);
-				values = [ referenceOrderId, 0, 'PENDING' ];
+				values = [ referenceOrderId, 0, JSON.stringify(gamePurchaseDetails) ];
 				await DATABASE_CONNECTION.query(sql, values);
+
+				// Return a successful response to the client with the order ID.
+				res.send({
+					orderID: order.result.id
+				});
 
 			// If the user has chosen an unknown payment option, notify them.
 			} else {
@@ -703,23 +718,138 @@ app.post('/approve', asyncMiddleware(async (req, res, next) => {
 	request.requestBody({});
 	try {
 		const capture = await PAYPAL_CLIENT.execute(request);
-		let orderId = capture['purchase_units'][0]['reference_id'];
+		let orderId = capture.result['purchase_units'][0]['reference_id'];
 		let databaseName = process.env.DATABASE;
 		let sql = util.format(process.env.INSERT_ORDER_STATUS, databaseName);
 		let values = [ orderId, 1, JSON.stringify(capture) ];
 		await DATABASE_CONNECTION.query(sql, values);
 
 		// Retrieve the cost of a prior order.
-		sql = util.format(process.env.GET_ORDER_COST, databaseName);
+		sql = util.format(process.env.GET_ORDER_DETAILS, databaseName);
 		values = [ orderId ];
 		let rows = await DATABASE_CONNECTION.query(sql, values);
 		let cost = rows[0].cost;
+		let orderDetails = JSON.parse(rows[0].details);
+		let userId = rows[0].userId;
 
 		// Verify that the captured transaction is correctly-priced.
-		let transactionStatus = capture['purchase_units'][0].payments.captures[0].status;
-		let transactionCurrency = capture['purchase_units'][0].payments.captures[0].amount['currency_code'];
-		let transactionValue = capture['purchase_units'][0].payments.captures[0].amount.value;
+		let transactionStatus = capture.result['purchase_units'][0].payments.captures[0].status;
+		let transactionCurrency = capture.result['purchase_units'][0].payments.captures[0].amount['currency_code'];
+		let transactionValue = capture.result['purchase_units'][0].payments.captures[0].amount.value;
 		if (transactionStatus === 'COMPLETED' && transactionCurrency === 'USD' && parseFloat(transactionValue) >= cost) {
+			let gamePurchaseDetails = orderDetails.gamePurchaseDetails;
+			let purchasedItems = gamePurchaseDetails.purchasedItems;
+			let ascendingItems = gamePurchaseDetails.ascendingItems;
+
+			// TODO: this process should operate directly against the database.
+			// The transaction succeeded! Remove the database-backed unascended items.
+			for (let itemId in ascendingItems) {
+				if (ascendingItems.hasOwnProperty(itemId)) {
+					let amount = ascendingItems[itemId];
+
+					const gameRemoveItemData = JSON.stringify({
+						itemId: itemId,
+						amount: amount,
+						recipientId: userId
+					});
+					await requestPromise({
+						method: 'POST',
+						uri: process.env.GAME_REMOVE_ITEM_URI,
+						headers: {
+							'Accept': 'application/json',
+							'Content-Type': 'application/json',
+							'Content-Length': gameRemoveItemData.length,
+							'Authorization': 'Bearer ' + GAME_ADMIN_ACCESS_TOKEN
+						},
+						body: gameRemoveItemData
+					});
+				}
+			}
+
+			// Mint the newly-purchased items to the user's wallet.
+			for (let i = 0; i < purchasedItems.length; i++) {
+				let service = purchasedItems[i];
+				let serviceInformation = service.serviceInformation;
+				let itemId = serviceInformation.itemId;
+				let itemAmount = serviceInformation.amount;
+				let purchasedAmount = service.purchasedAmount;
+				let amountToMint = (itemAmount * purchasedAmount);
+
+				// Get the user's address and verify it is not the zero address.
+				sql = util.format(process.env.GET_LAST_ADDRESS, databaseName);
+				values = [ userId ];
+				rows = await DATABASE_CONNECTION.query(sql, values);
+				let userAddress = rows[0].lastAddress;
+				if (userAddress === '0x0000000000000000000000000000000000000000') {
+					res.sendStatus(400);
+					return;
+
+				// Retrieve the Enjin token identifier corresponding to this item.
+				} else {
+					sql = util.format(process.env.GET_ENJIN_ITEM_ID, databaseName);
+					values = [ itemId ];
+					rows = await DATABASE_CONNECTION.query(sql, values);
+					let enjinTokenId = rows[0].enjinId;
+
+					// Issue a transaction to mint the user's purchase on Enjin.
+					let enjinPlatformUrl = process.env.ENJIN_PLATFORM_URL;
+					let client = new GraphQLClient(enjinPlatformUrl, {
+						headers: {
+							'Authorization': 'Bearer ' + ENJIN_ADMIN_ACCESS_TOKEN,
+							'X-App-Id': process.env.GAME_APP_ID
+						}
+					});
+					const enjinMintData = JSON.stringify({
+						id: process.env.GAME_APP_ID,
+						tokenId: enjinTokenId,
+						address: userAddress,
+						amount: amountToMint
+					});
+					await client.request(process.env.ENJIN_MINT_MUTATION, enjinMintData);
+				}
+			}
+
+			// Mint the freshly-ascended items to the user's wallet.
+			for (let itemId in ascendingItems) {
+				if (ascendingItems.hasOwnProperty(itemId)) {
+					let amount = ascendingItems[itemId];
+
+					// Get the user's address and verify it is not the zero address.
+					sql = util.format(process.env.GET_LAST_ADDRESS, databaseName);
+					values = [ userId ];
+					rows = await DATABASE_CONNECTION.query(sql, values);
+					let userAddress = rows[0].lastAddress;
+					if (userAddress === '0x0000000000000000000000000000000000000000') {
+						res.sendStatus(400);
+						return;
+
+					// Retrieve the Enjin token identifier corresponding to this item.
+					} else {
+						sql = util.format(process.env.GET_ENJIN_ITEM_ID, databaseName);
+						values = [ itemId ];
+						rows = await DATABASE_CONNECTION.query(sql, values);
+						let enjinTokenId = rows[0].enjinId;
+
+						// Issue a transaction to mint the user's purchase on Enjin.
+						let enjinPlatformUrl = process.env.ENJIN_PLATFORM_URL;
+						let client = new GraphQLClient(enjinPlatformUrl, {
+							headers: {
+								'Authorization': 'Bearer ' + ENJIN_ADMIN_ACCESS_TOKEN,
+								'X-App-Id': process.env.GAME_APP_ID
+							}
+						});
+						const enjinMintData = JSON.stringify({
+							id: process.env.GAME_APP_ID,
+							tokenId: enjinTokenId,
+							address: userAddress,
+							amount: amount
+						});
+						await client.request(process.env.ENJIN_MINT_MUTATION, enjinMintData);
+					}
+				}
+			}
+
+			// Let the user know that everything worked.
 			res.sendStatus(200);
 
 		// Record this transaction as having failed.

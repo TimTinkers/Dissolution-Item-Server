@@ -128,9 +128,9 @@
     <!-- Retrieve variables being passed from the server. -->
     <script>
       window.serverData = {};
-      window.serverData.inventoryUri = <%- gameInventoryUri %>;
-      window.serverData.metadataUri = <%- gameMetadataUri %>;
-      window.serverData.profileUri = <%- gameProfileUri %>;
+      window.serverData.inventoryUri = '<%= gameInventoryUri %>';
+      window.serverData.metadataUri = '<%= gameMetadataUri %>';
+      window.serverData.profileUri = '<%= gameProfileUri %>';
     </script>
     <script src="https://www.paypal.com/sdk/js?client-id=<%= paypalClientId %>"></script>
     <script src="/js/jquery.min.js"></script>
