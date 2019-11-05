@@ -21,6 +21,7 @@ const gameClient = jwksClient({
 });
 const paypal = require('@paypal/checkout-server-sdk');
 const uuidv1 = require('uuid/v1');
+const ethers = require('ethers');
 
 // Express application setup.
 let app = express();
@@ -48,6 +49,7 @@ let ENJIN_ADMIN_IDENTITY_ID;
 let ENJIN_ADMIN_ETHEREUM_ADDRESS;
 let PAYPAL_CLIENT;
 let DATABASE_CONNECTION;
+let PAYMENT_PROCESSOR;
 
 // Launch the application and begin the server listening.
 let server = app.listen(EXPRESS_PORT, async function () {
@@ -158,10 +160,29 @@ let server = app.listen(EXPRESS_PORT, async function () {
 					timeout: process.env.TIMEOUT
 				});
 
+				// Attempt to establish connection to the payment processor contract.
+				try {
+					let firstPartyPrivateKey = process.env.FIRST_PARTY_PRIVATE_KEY;
+					let contractAddress = process.env.PAYMENT_PROCESSOR_ADDRESS;
+					let abi = process.env.PAYMENT_PROCESSOR_ABI;
+					let provider = ethers.getDefaultProvider(process.env.NETWORK_SUFFIX);
+					let wallet = new ethers.Wallet(firstPartyPrivateKey, provider);
+					console.log(util.format(process.env.CONNECTING_TO_CONTRACT, contractAddress, process.env.NETWORK_SUFFIX));
+					PAYMENT_PROCESSOR = new ethers.Contract(contractAddress, abi, wallet);
+
+				// Catch any errors establishing connection to our payment processor.
+				} catch (error) {
+					console.error(util.format(process.env.CONTRACT_CONNECTION_ERROR, APPLICATION), error);
+					server.close();
+					return;
+				}
+
 			// Catch any errors when establishing connection to the RDS instance.
 			} catch (error) {
 				console.error(error);
 				DATABASE_CONNECTION.end();
+				server.close();
+				return;
 			}
 
 		// Verify that we were actually able to log into Enjin.
@@ -731,6 +752,44 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 				// Return a successful response to the client with the order ID.
 				res.send({
 					orderID: order.result.id
+				});
+
+			// If the user has chosen to pay with Ether, generate a transaction.
+			} else if (paymentMethod === 'ETHER') {
+				let serializableAscensionMap = {};
+
+				// TODO: lock the items in escrow while payment pends.
+				// Format and store the order history to deliver upon later payment.
+				for (let itemId of ascensionReadyItems.keys()) {
+					serializableAscensionMap[itemId] = ascensionReadyItems.get(itemId);
+				}
+				let gamePurchaseDetails = { purchasedItems: confirmedToPurchaseItems, ascendingItems: serializableAscensionMap };
+
+				// Create an entry in our database for this order.
+				let referenceOrderId = uuidv1();
+				let databaseName = process.env.DATABASE;
+				let sql = util.format(process.env.INSERT_ORDER_DETAILS, databaseName);
+				let values = [ referenceOrderId, userId, totalCost, 'ETHER', JSON.stringify(gamePurchaseDetails) ];
+				await DATABASE_CONNECTION.query(sql, values);
+
+				// Create an entry to flag this order as pending.
+				sql = util.format(process.env.INSERT_ORDER_STATUS, databaseName);
+				values = [ referenceOrderId, 0, JSON.stringify(gamePurchaseDetails) ];
+				await DATABASE_CONNECTION.query(sql, values);
+
+				// TODO: actually create and sign multiple services; for now only ascension is operable.
+				// TODO: track a mapping of store service to payment process services.
+				// Return a series of transactions for all requested purchases.
+				let purchaseData = Object.values({
+					serviceId: 0
+				});
+				let transactionData = PAYMENT_PROCESSOR.interface.functions['purchase'].encode(purchaseData);
+				res.send({
+					nonce: 0,
+					gasLimit: 3000000,
+					to: process.env.PAYMENT_PROCESSOR_ADDRESS,
+					data: transactionData,
+					value: (5500000000000000 * ascensionReadyItems.size)
 				});
 
 			// If the user has chosen an unknown payment option, notify them.

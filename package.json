@@ -24,6 +24,7 @@
     "cookie-parser": "latest",
     "dotenv": "^8.0.0",
     "ejs": "latest",
+    "ethers": "^4.0.39",
     "express": "latest",
     "graphql-request": "^1.8.2",
     "jsonwebtoken": "^8.5.1",
