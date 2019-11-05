@@ -1,2 +1,2 @@
-# Dissolution-Item-Server
-This repository contains code for the Dissolution item management server.
+# Virtual-Item-Server
+This repository contains code for the Enjin-backed virtual item management server.
