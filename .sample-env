@@ -8,6 +8,7 @@ GAME_JWKS_URI=
 GAME_LOGIN_URI=
 GAME_PROFILE_URI=
 GAME_INVENTORY_URI=
+GAME_MINT_SCREEN_URI=
 GAME_METADATA_URI=
 GAME_REMOVE_ITEM_URI=
 GAME_ADMIN_USERNAME=
@@ -26,6 +27,7 @@ DATABASE_PASSWORD=
 DATABASE_PORT=3306
 DATABASE=
 TIMEOUT=30000
+NETWORK_SUFFIX=kovan
 
 # Define the services offered for sale by this server and their prices.
 ASCENSION_ENABLED=true
@@ -56,7 +58,9 @@ INSERT_ORDER_STATUS=INSERT INTO `%s`.`item_order_status` (`orderId`, `status`, `
 GET_ORDER_DETAILS=SELECT * FROM `%s`.`item_order_details` WHERE `orderId`=?;
 UPDATE_LAST_ADDRESS=UPDATE `%s`.`users` SET `lastAddress`=? WHERE `playerId`=?;
 GET_LAST_ADDRESS=SELECT `lastAddress` FROM `%s`.`users` WHERE `playerId`=?;
-GET_ENJIN_ITEM_ID=SELECT `enjinId` FROM `%s`.`item_mapping_kovan` WHERE `itemId`=?;
+GET_ENJIN_ITEM_ID=SELECT `enjinId` FROM `%s`.`item_mapping_%s` WHERE `itemId`=?;
+GET_VALID_ENJIN_ITEMS=SELECT `enjinId` FROM `%s`.`item_mapping_%s`;
+GET_VALID_GAME_ITEMS=SELECT `itemId` FROM `%s`.`item_mapping_%s`;
 
 # Errors and other messages.
 SETUP_STARTING=%s item server is starting on port %d ...
@@ -76,6 +80,7 @@ INVENTORY_RETRIEVAL_FAILED=Could not retrieve the user's inventory.
 EXISTING_ENJIN_IDENTITY_FAILED=Could not find the user's existing identity.
 GAME_UNABLE_TO_RETRIEVE_PROFILE=Unable to retrieve your profile information.
 GAME_UNABLE_TO_RETRIEVE_INVENTORY=Unable to retrieve your inventory information.
+GAME_UNABLE_TO_SCREEN_INVENTORY=Unable to screen your mintable inventory items.
 EMPTY_ASCENSION_ERROR=You must specify at least one item to ascend.
 ITEMS_NOT_OWNED_ERROR=You do not have these items available to ascend.
 PAYPAL_DISABLED_ERROR=PayPal is not enabled as a payment option.

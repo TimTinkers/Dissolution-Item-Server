@@ -30,8 +30,7 @@
     "jwks-rsa": "^1.5.1",
     "mysql": "latest",
     "promise-mysql": "^3.3.2",
-    "request-promise": "^4.2.4",
-    "truffle-hdwallet-provider": "0.0.6"
+    "request-promise": "^4.2.4"
   },
   "scripts": {
     "start": "node app.js"

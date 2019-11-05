@@ -107,8 +107,9 @@
                   You have no items which can be ascended to Enjin at this time.
                 </div>
                 <div class="modal-footer">
-                  <button id="mintingCheckoutClose" type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
                   <div id="paypal-button-container"></div>
+                  <button id="payWithEther" type="button" class="btn btn-primary">Pay with ETH</button>
+                  <button id="mintingCheckoutClose" type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
                 </div>
               </div>
             </div>
@@ -131,6 +132,7 @@
       window.serverData.inventoryUri = '<%= gameInventoryUri %>';
       window.serverData.metadataUri = '<%= gameMetadataUri %>';
       window.serverData.profileUri = '<%= gameProfileUri %>';
+      window.serverData.screeningUri = '<%= gameMintScreenUri %>';
     </script>
     <script src="https://www.paypal.com/sdk/js?client-id=<%= paypalClientId %>"></script>
     <script src="/js/jquery.min.js"></script>

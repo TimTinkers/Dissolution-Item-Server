@@ -251,6 +251,7 @@ app.get('/', asyncMiddleware(async (req, res, next) => {
 			gameInventoryUri: process.env.GAME_INVENTORY_URI,
 			gameMetadataUri: process.env.GAME_METADATA_URI,
 			gameProfileUri: process.env.GAME_PROFILE_URI,
+			gameMintScreenUri: process.env.GAME_MINT_SCREEN_URI,
 			paypalClientId: process.env.PAYPAL_CLIENT_ID
 		});
 	});
@@ -346,12 +347,21 @@ async function sendStatusToClient (client, email, userId, res) {
 				let values = [ userAddress, userId ];
 				await DATABASE_CONNECTION.query(sql, values);
 
+				// Retrieve all Enjin items with in-game equivalents.
+				let validEnjinIds = new Set();
+				sql = util.format(process.env.GET_VALID_ENJIN_ITEMS, databaseName, process.env.NETWORK_SUFFIX);
+				let validEnjinItems = await DATABASE_CONNECTION.query(sql);
+				for (let i = 0; i < validEnjinItems.length; i++) {
+					let validEnjinItemId = validEnjinItems[i].enjinId;
+					validEnjinIds.add(validEnjinItemId);
+				}
+
 				// Process and return the user's inventory to the dashboard.
 				let gameInventory = [];
 				let tokens = enjinInventoryResponse.result[0].tokens;
 				for (let i = 0; i < tokens.length; i++) {
 					let token = tokens[i];
-					if (token['app_id'] === parseInt(process.env.GAME_APP_ID)) {
+					if (token['app_id'] === parseInt(process.env.GAME_APP_ID) && validEnjinIds.has(token['token_id'])) {
 						gameInventory.push(token);
 					}
 				}
@@ -429,6 +439,42 @@ app.post('/connect', asyncMiddleware(async (req, res, next) => {
 				error: process.env.GAME_UNABLE_TO_RETRIEVE_PROFILE,
 				applicationName: APPLICATION
 			});
+		}
+	});
+}));
+
+// Screen items in a user's inventory to make sure they may be ascended.
+app.post('/screen-items', asyncMiddleware(async (req, res, next) => {
+	loginValidator(req, res, async function (gameToken, decoded) {
+		try {
+			let unscreenedItems = req.body.unscreenedItems;
+			let databaseName = process.env.DATABASE;
+
+			// Retrieve all Enjin items with in-game equivalents.
+			let validGameIds = new Set();
+			let sql = util.format(process.env.GET_VALID_GAME_ITEMS, databaseName, process.env.NETWORK_SUFFIX);
+			let validGameItems = await DATABASE_CONNECTION.query(sql);
+			for (let i = 0; i < validGameItems.length; i++) {
+				let validGameItemId = validGameItems[i].itemId;
+				validGameIds.add(validGameItemId);
+			}
+
+			// Filter items that require screening.
+			let screenedItems = [];
+			for (let i = 0; i < unscreenedItems.length; i++) {
+				let unscreenedItem = unscreenedItems[i];
+				if (validGameIds.has(parseInt(unscreenedItem.id))) {
+					screenedItems.push(unscreenedItem);
+				}
+			}
+
+			// Return the screened inventory items.
+			res.send({ status: 'SCREENED', screenedItems: screenedItems });
+
+		// If we are unable to screen a user's items, log an error and notify them.
+		} catch (error) {
+			console.error(process.env.GAME_UNABLE_TO_SCREEN_INVENTORY, error);
+			res.send({ status: 'ERROR', message: process.env.GAME_UNABLE_TO_SCREEN_INVENTORY });
 		}
 	});
 }));
@@ -786,7 +832,7 @@ app.post('/approve', asyncMiddleware(async (req, res, next) => {
 
 				// Retrieve the Enjin token identifier corresponding to this item.
 				} else {
-					sql = util.format(process.env.GET_ENJIN_ITEM_ID, databaseName);
+					sql = util.format(process.env.GET_ENJIN_ITEM_ID, databaseName, process.env.NETWORK_SUFFIX);
 					values = [ itemId ];
 					rows = await DATABASE_CONNECTION.query(sql, values);
 					let enjinTokenId = rows[0].enjinId;
@@ -825,7 +871,7 @@ app.post('/approve', asyncMiddleware(async (req, res, next) => {
 
 					// Retrieve the Enjin token identifier corresponding to this item.
 					} else {
-						sql = util.format(process.env.GET_ENJIN_ITEM_ID, databaseName);
+						sql = util.format(process.env.GET_ENJIN_ITEM_ID, databaseName, process.env.NETWORK_SUFFIX);
 						values = [ itemId ];
 						rows = await DATABASE_CONNECTION.query(sql, values);
 						let enjinTokenId = rows[0].enjinId;

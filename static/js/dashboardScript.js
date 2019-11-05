@@ -196,26 +196,55 @@ let setup = async function (config) {
 	$('#mintButton').click(async function () {
 		$('#mintingCheckoutContent').empty();
 		checkoutItems = {};
-		if (gameItems.length > 0) {
-			let updatedModalContent = $('<ul id="checkoutList" style="list-style-type:circle"></ul>');
-			for (let i = 0; i < gameItems.length; i++) {
-				let item = gameItems[i];
-				let itemAmount = item.amount;
-				let itemId = item.id;
-				let itemName = item.name;
 
-				updatedModalContent.append('<li>(' + itemId + ') ' + itemName + '\t\t<input id="amount-' + itemId + '" class="input" itemId="' + itemId + '" type="number" value="0" min="0" max="' + itemAmount + '" step="1" style="float: right"/></li>');
+		// Only show the option to mint items which can be ascended.
+		try {
+			let screeningResponse = await $.post(window.serverData.screeningUri, {
+				unscreenedItems: gameItems
+			});
+
+			// Handle the response from item screening.
+			if (screeningResponse.status === 'SCREENED') {
+				let screenedItems = screeningResponse.screenedItems;
+
+				// Populate the minting checkout modal with potential options.
+				if (screenedItems.length > 0) {
+					let updatedModalContent = $('<ul id="checkoutList" style="list-style-type:circle"></ul>');
+					for (let i = 0; i < screenedItems.length; i++) {
+						let item = screenedItems[i];
+						let itemAmount = item.amount;
+						let itemId = item.id;
+						let itemName = item.name;
+
+						updatedModalContent.append('<li>(' + itemId + ') ' + itemName + '\t\t<input id="amount-' + itemId + '" class="input" itemId="' + itemId + '" type="number" value="0" min="0" max="' + itemAmount + '" step="1" style="float: right"/></li>');
+					}
+					$('#mintingCheckoutContent').html(updatedModalContent.html());
+				} else {
+					$('#mintingCheckoutContent').html('You have no items which can be ascended to Enjin at this time.');
+				}
+
+			// If there was a screening error, notify the user.
+			} else if (screeningResponse.status === 'ERROR') {
+				let errorBox = $('#errorBox');
+				errorBox.html(screeningResponse.message);
+				errorBox.show();
+
+			// Otherwise, display an error about an unknown status.
+			} else {
+				let errorBox = $('#errorBox');
+				errorBox.html('Received unknown message status from the server.');
+				errorBox.show();
 			}
-			$('#mintingCheckoutContent').html(updatedModalContent.html());
-		} else {
-			$('#mintingCheckoutContent').html('You have no items which can be ascended to Enjin at this time.');
+
+		// If unable to screen a user's mintable item inventory, show an error.
+		} catch (error) {
+			showError('Unable to verify mintability at this time.');
 		}
 	});
 
 	// Assign functionality to the modal's PayPal checkout button.
 	paypal.Buttons({
 		createOrder: async function () {
-			console.log(checkoutItems);
 			let data = await $.post('/checkout', {
 				requestedServices: [
 					{
