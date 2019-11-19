@@ -763,7 +763,8 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 				for (let itemId of ascensionReadyItems.keys()) {
 					serializableAscensionMap[itemId] = ascensionReadyItems.get(itemId);
 				}
-				let gamePurchaseDetails = { purchasedItems: confirmedToPurchaseItems, ascendingItems: serializableAscensionMap };
+				let purchaser = req.body.purchaser;
+				let gamePurchaseDetails = { purchasedItems: confirmedToPurchaseItems, ascendingItems: serializableAscensionMap, purchaser: purchaser };
 
 				// Create an entry in our database for this order.
 				let referenceOrderId = uuidv1();
@@ -781,7 +782,8 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 				// TODO: track a mapping of store service to payment process services.
 				// Return a series of transactions for all requested purchases.
 				let purchaseData = Object.values({
-					serviceId: 0
+					serviceId: 0,
+					orderId: referenceOrderId
 				});
 				let transactionData = PAYMENT_PROCESSOR.interface.functions['purchase'].encode(purchaseData);
 				res.send({
@@ -824,14 +826,11 @@ app.post('/approve', asyncMiddleware(async (req, res, next) => {
 	try {
 		const capture = await PAYPAL_CLIENT.execute(request);
 		let orderId = capture.result['purchase_units'][0]['reference_id'];
-		let databaseName = process.env.DATABASE;
-		let sql = util.format(process.env.INSERT_ORDER_STATUS, databaseName);
-		let values = [ orderId, 1, JSON.stringify(capture) ];
-		await DATABASE_CONNECTION.query(sql, values);
 
 		// Retrieve the cost of a prior order.
-		sql = util.format(process.env.GET_ORDER_DETAILS, databaseName);
-		values = [ orderId ];
+		let databaseName = process.env.DATABASE;
+		let sql = util.format(process.env.GET_ORDER_DETAILS, databaseName);
+		let values = [ orderId ];
 		let rows = await DATABASE_CONNECTION.query(sql, values);
 		let cost = rows[0].cost;
 		let orderDetails = JSON.parse(rows[0].details);
@@ -953,6 +952,11 @@ app.post('/approve', asyncMiddleware(async (req, res, next) => {
 					}
 				}
 			}
+
+			// Record the transaction as a success.
+			sql = util.format(process.env.INSERT_ORDER_STATUS, databaseName);
+			values = [ orderId, 1, JSON.stringify(capture) ];
+			await DATABASE_CONNECTION.query(sql, values);
 
 			// Let the user know that everything worked.
 			res.sendStatus(200);
