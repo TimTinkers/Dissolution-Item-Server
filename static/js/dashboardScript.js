@@ -6,6 +6,7 @@ let USER_ADDRESS;
 
 // Track the list of game items which can be ascended.
 let gameItems = [];
+let ascensionItems = {};
 let checkoutItems = {};
 
 // A helper function to show an error message on the page.
@@ -52,9 +53,6 @@ async function refreshInventory () {
 				let itemImage = itemMetadata.image;
 				let itemDescription = itemMetadata.description;
 
-				// Update the actual list for display.
-				updatedListGame.append('<li>' + itemAmount + ' x (' + itemId + ') ' + itemName + ': ' + itemDescription + '</li>');
-
 				updatedGameItems.push({
 					id: itemId,
 					amount: itemAmount,
@@ -65,12 +63,68 @@ async function refreshInventory () {
 
 			// If unable to retrieve an item's metadata, flag such an item.
 			} catch (error) {
-				updatedListGame.append('<li>' + itemAmount + ' x (' + itemId + ') - unable to retrieve metadata.</li>');
+				updatedGameItems.push({
+					id: itemId,
+					amount: itemAmount,
+					name: 'unknown',
+					description: 'unable to retrieve metadata',
+					image: ''
+				});
 			}
 		}
 
 		// Update our list and remove the loading indicator.
 		gameItems = updatedGameItems;
+
+		// Only show the option to mint on items which can be ascended.
+		let ascendableItems = new Set();
+		try {
+			let screeningResponse = await $.post(window.serverData.screeningUri, {
+				unscreenedItems: gameItems
+			});
+
+			// Display ascendable items within the inventory in a special way.
+			if (screeningResponse.status === 'SCREENED') {
+				let screenedItems = screeningResponse.screenedItems;
+				for (let i = 0; i < screenedItems.length; i++) {
+					let item = screenedItems[i];
+					let itemAmount = item.amount;
+					let itemId = item.id;
+					ascendableItems.add(parseInt(itemId));
+					let itemName = item.name;
+					let itemDescription = item.description;
+					updatedListGame.append('<li>' + itemAmount + ' x (' + itemId + ') ' + itemName + ': ' + itemDescription + '\t\t<input id="amount-' + itemId + '" class="input" itemId="' + itemId + '" type="number" value="0" min="0" max="' + itemAmount + '" step="1" style="float: right"/></li>');
+				}
+
+			// If there was a screening error, notify the user.
+			} else if (screeningResponse.status === 'ERROR') {
+				let errorBox = $('#errorBox');
+				errorBox.html(screeningResponse.message);
+				errorBox.show();
+
+			// Otherwise, display an error about an unknown status.
+			} else {
+				let errorBox = $('#errorBox');
+				errorBox.html('Received unknown message status from the server.');
+				errorBox.show();
+			}
+
+		// If unable to screen a user's mintable item inventory, show an error.
+		} catch (error) {
+			showError('Unable to verify item mintability at this time.');
+		}
+
+		// Also display the unascendable items.
+		for (let i = 0; i < updatedGameItems.length; i++) {
+			let item = updatedGameItems[i];
+			let itemAmount = item.amount;
+			let itemId = item.id;
+			let itemName = item.name;
+			let itemDescription = item.description;
+			if (!ascendableItems.has(parseInt(itemId))) {
+				updatedListGame.append('<li>' + itemAmount + ' x (' + itemId + ') ' + itemName + ': ' + itemDescription + '</li>');
+			}
+		}
 		$('#ownedListGame').html(updatedListGame.html());
 		$('#gameServerSpinner').remove();
 
@@ -138,17 +192,106 @@ async function refreshInventory () {
 		errorBox.html('Received unknown message status from the server.');
 		errorBox.show();
 	}
+
+	// Update the items that are for sale in the store.
+	let storeData = await $.post('/sales');
+	if (storeData.status === 'SUCCESS') {
+		let updatedStoreList = $('<ul id="itemsOnSale" style="list-style-type:circle"></ul>');
+		let storeItems = storeData.offers;
+		if (storeItems.length > 0) {
+			$('#itemsInStock').html('The following items are on sale:');
+		}
+		for (let i = 0; i < storeItems.length; i++) {
+			let item = storeItems[i];
+			let serviceId = item.serviceId;
+			let availableForSale = item.availableForSale;
+			let itemId = item.itemId;
+			let itemName = item.name;
+			let itemDescription = item.description;
+			let itemAmount = item.amount;
+			let itemCost = item.cost;
+
+			// Update the actual list for display.
+			updatedStoreList.append('<li>' + itemAmount + ' x (' + itemId + ') ' + itemName + ': ' + itemDescription + ' for $' + itemCost + '\t\t<input id="amount-' + serviceId + '" class="input" serviceId="' + serviceId + '" type="number" value="0" min="0" max="' + availableForSale + '" step="1" style="float: right"/></li>');
+		}
+
+		// Update our store and remove the loading indicator.
+		$('#itemsOnSale').html(updatedStoreList.html());
+		$('#itemSaleSpinner').remove();
+
+	// Otherwise, display an error from the server.
+	} else if (storeData.status === 'ERROR') {
+		let errorBox = $('#errorBox');
+		errorBox.html(storeData.message);
+		errorBox.show();
+
+	// Otherwise, display an error about an unknown status.
+	} else {
+		let errorBox = $('#errorBox');
+		errorBox.html('Received unknown message status from the server.');
+		errorBox.show();
+	}
+};
+
+// Prepares all services being requested by a user for purchase.
+function buildRequestList () {
+	let order = [];
+
+	// Check if the user is requesting to ascend any items.
+	let hasAscension = false;
+	let filteredAscensionItems = {};
+	for (let itemId in ascensionItems) {
+		let requestedAmount = ascensionItems[itemId];
+		if (requestedAmount <= 0) {
+			continue;
+		} else {
+			hasAscension = true;
+			filteredAscensionItems[itemId] = requestedAmount;
+			console.log(itemId, requestedAmount, filteredAscensionItems);
+		}
+	}
+
+	// If so, then note that ascension is happening in the order.
+	if (hasAscension) {
+		order.push({
+			id: 'ASCENSION',
+			checkoutItems: filteredAscensionItems
+		});
+	}
+
+	// Check if the user has requested to buy any services.
+	for (let serviceId in checkoutItems) {
+		let requestedAmount = checkoutItems[serviceId];
+		if (requestedAmount <= 0) {
+			continue;
+		} else {
+			order.push({
+				id: serviceId,
+				amount: requestedAmount
+			});
+		}
+	}
+	return order;
 };
 
 // A function which asynchronously sets up the page.
 let setup = async function (config) {
 	console.log('Setting up page given configuration ...');
 
-	// Assigning delegate to modal event handler.
-	$('#mintingCheckoutContent').on('input', '.input', function (changedEvent) {
+	// Assigning delegate to ascension selection event handler.
+	$('#ownedListGame').on('input', '.input', function (changedEvent) {
 		let itemValue = parseInt($(this).val());
 		let itemId = $(this).attr('itemId');
-		checkoutItems[itemId] = itemValue;
+		ascensionItems[itemId] = itemValue;
+		console.log(ascensionItems, checkoutItems);
+	});
+
+	// Assigning delegate to purchase checkout event handler.
+	$('#itemsOnSale').on('input', '.input', function (changedEvent) {
+		let amount = parseInt($(this).val());
+		let serviceId = $(this).attr('serviceId');
+		checkoutItems[serviceId] = amount;
+		console.log(ascensionItems, checkoutItems);
 	});
 
 	// Get the user's access token and identity.
@@ -192,66 +335,11 @@ let setup = async function (config) {
 		showError('Unable to retrieve user profile.');
 	}
 
-	// Assign functionality to the item minting button.
-	$('#mintButton').click(async function () {
-		$('#mintingCheckoutContent').empty();
-		checkoutItems = {};
-
-		// Only show the option to mint items which can be ascended.
-		try {
-			let screeningResponse = await $.post(window.serverData.screeningUri, {
-				unscreenedItems: gameItems
-			});
-
-			// Handle the response from item screening.
-			if (screeningResponse.status === 'SCREENED') {
-				let screenedItems = screeningResponse.screenedItems;
-
-				// Populate the minting checkout modal with potential options.
-				if (screenedItems.length > 0) {
-					let updatedModalContent = $('<ul id="checkoutList" style="list-style-type:circle"></ul>');
-					for (let i = 0; i < screenedItems.length; i++) {
-						let item = screenedItems[i];
-						let itemAmount = item.amount;
-						let itemId = item.id;
-						let itemName = item.name;
-
-						updatedModalContent.append('<li>(' + itemId + ') ' + itemName + '\t\t<input id="amount-' + itemId + '" class="input" itemId="' + itemId + '" type="number" value="0" min="0" max="' + itemAmount + '" step="1" style="float: right"/></li>');
-					}
-					$('#mintingCheckoutContent').html(updatedModalContent.html());
-				} else {
-					$('#mintingCheckoutContent').html('You have no items which can be ascended to Enjin at this time.');
-				}
-
-			// If there was a screening error, notify the user.
-			} else if (screeningResponse.status === 'ERROR') {
-				let errorBox = $('#errorBox');
-				errorBox.html(screeningResponse.message);
-				errorBox.show();
-
-			// Otherwise, display an error about an unknown status.
-			} else {
-				let errorBox = $('#errorBox');
-				errorBox.html('Received unknown message status from the server.');
-				errorBox.show();
-			}
-
-		// If unable to screen a user's mintable item inventory, show an error.
-		} catch (error) {
-			showError('Unable to verify mintability at this time.');
-		}
-	});
-
 	// Assign functionality to the modal's PayPal checkout button.
 	paypal.Buttons({
 		createOrder: async function () {
 			let data = await $.post('/checkout', {
-				requestedServices: [
-					{
-						id: 'ASCENSION',
-						checkoutItems: checkoutItems
-					}
-				],
+				requestedServices: buildRequestList(),
 				paymentMethod: 'PAYPAL'
 			});
 			return data.orderID;
@@ -277,12 +365,7 @@ let setup = async function (config) {
 
 		// Retrieve and sign a payment transaction generated by the server.
 		let transaction = await $.post('/checkout', {
-			requestedServices: [
-				{
-					id: 'ASCENSION',
-					checkoutItems: checkoutItems
-				}
-			],
+			requestedServices: buildRequestList(),
 			paymentMethod: 'ETHER',
 			purchaser: purchaser
 		});

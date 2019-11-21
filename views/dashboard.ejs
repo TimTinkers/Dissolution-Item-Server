@@ -88,32 +88,28 @@
             </ul>
           </div>
 
-          <!-- This button displays the minting checkout modal. -->
-          <br />
-          <button id="mintButton" class="btn btn-primary collapse" data-toggle="modal" data-target="#mintingCheckoutModal">Mint New Asset</button>
-          <br />
+          <!-- A panel for displaying assets that are for sale. -->
+          <div class="panel panel-default">
+            <h2>
+              Assets for Sale
+            </h2>
 
-          <!-- This modal contains the contents for minting checkout. -->
-          <div class="modal fade" id="mintingCheckoutModal" tabindex="-1" role="dialog" aria-labelledby="mintingCheckoutModalCenterTitle" aria-hidden="true">
-            <div class="modal-dialog modal-dialog-centered" role="document">
-              <div class="modal-content">
-                <div class="modal-header">
-                  <h5 class="modal-title" id="mintingCheckoutModalLongTitle">Minting Checkout</h5>
-                  <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                    <span aria-hidden="true">&times;</span>
-                  </button>
-                </div>
-                <div id="mintingCheckoutContent" class="modal-body">
-                  You have no items which can be ascended to Enjin at this time.
-                </div>
-                <div class="modal-footer">
-                  <div id="paypal-button-container"></div>
-                  <button id="payWithEther" type="button" class="btn btn-primary">Pay with ETH</button>
-                  <button id="mintingCheckoutClose" type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
-                </div>
+            <!-- This section displays items in stock. -->
+            <div id="itemsInStock">
+              There are no items in stock at this time.
+            </div>
+            <div id="itemSaleSpinner" class="d-flex justify-content-center">
+              <div class="spinner-border" role="status">
+                <span class="sr-only">Loading...</span>
               </div>
             </div>
+            <ul id="itemsOnSale" style="list-style-type:circle">
+            </ul>
           </div>
+
+          <br />
+          <div id="paypal-button-container"></div>
+          <button id="payWithEther" type="button" class="btn btn-primary">Pay with ETH</button>
 
           <!-- A button that logs the user out. -->
           <button id="logoutButton" class="btn btn-primary">Logout</button>

@@ -464,6 +464,41 @@ app.post('/connect', asyncMiddleware(async (req, res, next) => {
 	});
 }));
 
+// Retrieve items that are for sale.
+app.post('/sales', asyncMiddleware(async (req, res, next) => {
+	loginValidator(req, res, async function (gameToken, decoded) {
+		try {
+			let databaseName = process.env.DATABASE;
+
+			// Fetch active sale offers from the database.
+			let offers = [];
+			let sql = util.format(process.env.GET_ALL_ITEMS_FOR_SALE, databaseName, databaseName, databaseName);
+			let storeItems = await DATABASE_CONNECTION.query(sql);
+			for (let i = 0; i < storeItems.length; i++) {
+				let storeItem = storeItems[i];
+				let metadata = JSON.parse(storeItem.metadata);
+				offers.push({
+					serviceId: storeItem.serviceId,
+					availableForSale: storeItem.availableForSale,
+					itemId: storeItem.itemId,
+					name: metadata.name,
+					description: metadata.description,
+					amount: storeItem.amount,
+					cost: storeItem.price
+				});
+			}
+
+			// Return the screened inventory items.
+			res.send({ status: 'SUCCESS', offers: offers });
+
+		// If we are unable to retrieve the store, log an error and notify the user.
+		} catch (error) {
+			console.error(process.env.UNABLE_TO_RETRIEVE_STORE, error);
+			res.send({ status: 'ERROR', message: process.env.UNABLE_TO_RETRIEVE_STORE });
+		}
+	});
+}));
+
 // Screen items in a user's inventory to make sure they may be ascended.
 app.post('/screen-items', asyncMiddleware(async (req, res, next) => {
 	loginValidator(req, res, async function (gameToken, decoded) {
@@ -485,7 +520,13 @@ app.post('/screen-items', asyncMiddleware(async (req, res, next) => {
 			for (let i = 0; i < unscreenedItems.length; i++) {
 				let unscreenedItem = unscreenedItems[i];
 				if (validGameIds.has(parseInt(unscreenedItem.id))) {
-					screenedItems.push(unscreenedItem);
+					screenedItems.push({
+						id: unscreenedItem.id,
+						amount: unscreenedItem.amount,
+						name: unscreenedItem.name,
+						description: unscreenedItem.description,
+						image: unscreenedItem.image
+					});
 				}
 			}
 
@@ -516,6 +557,7 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 			profileResponse = JSON.parse(profileResponse);
 			let userId = profileResponse.userId;
 			let requestedServices = req.body.requestedServices;
+			console.log(requestedServices);
 
 			// Retrieve the services that are available for sale.
 			let serviceIdFilter = [];
@@ -619,13 +661,13 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 					}
 
 				// Check for the availability of particular services.
-				} else if (availableServices.has(serviceId)) {
-					let serviceInformation = availableServices.get(serviceId);
+				} else if (availableServices.has(parseInt(serviceId))) {
+					let serviceInformation = availableServices.get(parseInt(serviceId));
 					let itemAmount = serviceInformation.amount;
 					let availableItemAmount = serviceInformation.availableForSale;
 
 					// If the service is for sale, make sure it is still in supply.
-					if (itemAmount < availableItemAmount) {
+					if (itemAmount > availableItemAmount) {
 						res.send({ status: 'ERROR', message: process.env.OUT_OF_STOCK });
 						return;
 					}
@@ -640,6 +682,7 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 
 				// This service is unknown.
 				} else {
+					console.error('Unknown service', serviceId);
 					res.send({ status: 'ERROR', message: process.env.UNKNOWN_SERVICE_REQUESTED });
 					return;
 				}
