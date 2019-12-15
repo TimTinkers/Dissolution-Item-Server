@@ -362,7 +362,7 @@ async function sendStatusToClient (client, email, userId, res) {
 				});
 				let enjinInventoryResponse = await client.request(process.env.ENJIN_INVENTORY_QUERY, enjinInventoryData);
 
-				// Update the last address recorded for this user.
+				// Update the last address recorded for this user and flag them as having an Enjin account.
 				let databaseName = process.env.DATABASE;
 				let sql = util.format(process.env.UPDATE_LAST_ADDRESS, databaseName);
 				let values = [ userAddress, userId ];
@@ -421,6 +421,7 @@ app.post('/connect', asyncMiddleware(async (req, res, next) => {
 			});
 			profileResponse = JSON.parse(profileResponse);
 			let userId = profileResponse.userId;
+			let hasEnjinAccount = profileResponse.hasEnjinAccount;
 
 			// Establish our application's client for talking with Enjin.
 			let enjinPlatformUrl = process.env.ENJIN_PLATFORM_URL;
@@ -432,24 +433,29 @@ app.post('/connect', asyncMiddleware(async (req, res, next) => {
 				}
 			});
 
-			// Send the user an invitation to Enjin.
-			try {
-				const enjinInviteData = JSON.stringify({
-					email: email
-				});
-				await client.request(process.env.ENJIN_INVITE_MUTATION, enjinInviteData);
+			// If the user has an Enjin account, skip attempting to invite them.
+			if (hasEnjinAccount) {
 				await sendStatusToClient(client, email, userId, res);
 
-			// Handle a user who could not be invited because they are already registered to the app.
-			} catch (error) {
-				if (error.response.errors[0].message === process.env.ENJIN_ALREADY_INVITED_ERROR) {
+			// Otherwise, send the user an invitation to Enjin.
+			} else {
+				try {
+					const enjinInviteData = JSON.stringify({
+						email: email
+					});
+					await client.request(process.env.ENJIN_INVITE_MUTATION, enjinInviteData);
 					await sendStatusToClient(client, email, userId, res);
 
-				// Otherwise, we've encountered an unknown error and fail.
-				} else {
-					console.error(process.env.UNKNOWN_ERROR, error);
-					res.send({ status: 'ERROR', message: process.env.UNKNOWN_ERROR });
-					return;
+				// Handle a user who could not be invited because they are already registered to the app.
+				} catch (error) {
+					if (error.response.errors[0].message === process.env.ENJIN_ALREADY_INVITED_ERROR) {
+						await sendStatusToClient(client, email, userId, res);
+
+					// Otherwise, we've encountered an unknown error and fail.
+					} else {
+						console.error(process.env.UNKNOWN_ERROR, error);
+						res.send({ status: 'ERROR', message: process.env.UNKNOWN_ERROR });
+					}
 				}
 			}
 
