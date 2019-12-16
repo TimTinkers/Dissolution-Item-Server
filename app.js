@@ -571,7 +571,13 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 			});
 			profileResponse = JSON.parse(profileResponse);
 			let userId = profileResponse.userId;
+
+			// Try to retrieve the user's requested services.
 			let requestedServices = req.body.requestedServices;
+			if (!requestedServices) {
+				res.send({ status: 'ERROR', message: process.env.NO_ASCENSION_ITEMS_CHOSEN });
+				return;
+			}
 			console.log(requestedServices);
 
 			// Retrieve the services that are available for sale.
