@@ -273,7 +273,8 @@ app.get('/', asyncMiddleware(async (req, res, next) => {
 			gameMetadataUri: process.env.GAME_METADATA_URI,
 			gameProfileUri: process.env.GAME_PROFILE_URI,
 			gameMintScreenUri: process.env.GAME_MINT_SCREEN_URI,
-			paypalClientId: process.env.PAYPAL_CLIENT_ID
+			paypalClientId: process.env.PAYPAL_CLIENT_ID,
+			storeEnabled: process.env.STORE_ENABLED
 		});
 	});
 }));
@@ -354,6 +355,12 @@ async function sendStatusToClient (client, email, userId, res) {
 			}
 		}
 
+		// Update the last address recorded for this user and flag them as having an Enjin account.
+		let databaseName = process.env.DATABASE;
+		let sql = util.format(process.env.UPDATE_LAST_ADDRESS, databaseName);
+		let values = [ userAddress, userId ];
+		await DATABASE_CONNECTION.query(sql, values);
+
 		// If the user is linked, send their address and inventory.
 		if (userLinkingCode === null || userLinkingCode === 'null') {
 			try {
@@ -361,12 +368,6 @@ async function sendStatusToClient (client, email, userId, res) {
 					address: userAddress
 				});
 				let enjinInventoryResponse = await client.request(process.env.ENJIN_INVENTORY_QUERY, enjinInventoryData);
-
-				// Update the last address recorded for this user and flag them as having an Enjin account.
-				let databaseName = process.env.DATABASE;
-				let sql = util.format(process.env.UPDATE_LAST_ADDRESS, databaseName);
-				let values = [ userAddress, userId ];
-				await DATABASE_CONNECTION.query(sql, values);
 
 				// Retrieve all Enjin items with in-game equivalents.
 				let validEnjinIds = new Set();
@@ -470,6 +471,8 @@ app.post('/connect', asyncMiddleware(async (req, res, next) => {
 	});
 }));
 
+// TODO: return to fixing this portion for future self-hosted bits.
+// TODO: add metadata to service bundles.
 // Retrieve items that are for sale.
 app.post('/sales', asyncMiddleware(async (req, res, next) => {
 	loginValidator(req, res, async function (gameToken, decoded) {
@@ -478,19 +481,25 @@ app.post('/sales', asyncMiddleware(async (req, res, next) => {
 
 			// Fetch active sale offers from the database.
 			let offers = [];
-			let sql = util.format(process.env.GET_ALL_ITEMS_FOR_SALE, databaseName, databaseName, databaseName);
+			let sql = util.format(process.env.GET_ALL_ITEMS_FOR_SALE, databaseName, databaseName, databaseName, databaseName, databaseName);
 			let storeItems = await DATABASE_CONNECTION.query(sql);
 			for (let i = 0; i < storeItems.length; i++) {
 				let storeItem = storeItems[i];
+				let serviceId = storeItem.serviceId;
+				let price = storeItem.price;
+				let bundleItems = storeItem.bundleItems;
+				let bundleAmounts = storeItem.bundleAmounts;
+				let bundleSupplies = storeItem.bundleSupplies;
+				let bundleMetadata = storeItem.bundleMetadata;
 				let metadata = JSON.parse(storeItem.metadata);
 				offers.push({
-					serviceId: storeItem.serviceId,
+					serviceId: serviceId,
 					availableForSale: storeItem.availableForSale,
 					itemId: storeItem.itemId,
 					name: metadata.name,
 					description: metadata.description,
 					amount: storeItem.amount,
-					cost: storeItem.price
+					cost: price
 				});
 			}
 

@@ -89,7 +89,7 @@
           </div>
 
           <!-- A panel for displaying assets that are for sale. -->
-          <div class="panel panel-default">
+          <div id="itemSalePanel" class="collapse panel panel-default">
             <h2>
               Assets for Sale
             </h2>
@@ -129,6 +129,7 @@
       window.serverData.metadataUri = '<%= gameMetadataUri %>';
       window.serverData.profileUri = '<%= gameProfileUri %>';
       window.serverData.screeningUri = '<%= gameMintScreenUri %>';
+      window.serverData.storeEnabled = ('<%= storeEnabled %>' === 'true');
     </script>
     <script src="https://www.paypal.com/sdk/js?client-id=<%= paypalClientId %>" type="text/javascript"></script>
     <script src="/js/jquery.min.js" type="text/javascript"></script>

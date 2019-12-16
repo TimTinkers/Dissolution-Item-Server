@@ -130,6 +130,7 @@ async function refreshInventory () {
 
 	// If we were unable to retrieve the server inventory, throw error.
 	} catch (error) {
+		console.error(error);
 		showError('Unable to retrieve the server inventory.');
 		$('#ownedListGame').html('Unable to retrieve the server inventory.');
 	}
@@ -193,43 +194,45 @@ async function refreshInventory () {
 		errorBox.show();
 	}
 
-	// Update the items that are for sale in the store.
-	let storeData = await $.post('/sales');
-	if (storeData.status === 'SUCCESS') {
-		let updatedStoreList = $('<ul id="itemsOnSale" style="list-style-type:circle"></ul>');
-		let storeItems = storeData.offers;
-		if (storeItems.length > 0) {
-			$('#itemsInStock').html('The following items are on sale:');
+	// Update the items that are for sale in the store if the store is enabled.
+	if (window.serverData.storeEnabled) {
+		let storeData = await $.post('/sales');
+		if (storeData.status === 'SUCCESS') {
+			let updatedStoreList = $('<ul id="itemsOnSale" style="list-style-type:circle"></ul>');
+			let storeItems = storeData.offers;
+			if (storeItems.length > 0) {
+				$('#itemsInStock').html('The following items are on sale:');
+			}
+			for (let i = 0; i < storeItems.length; i++) {
+				let item = storeItems[i];
+				let serviceId = item.serviceId;
+				let availableForSale = item.availableForSale;
+				let itemId = item.itemId;
+				let itemName = item.name;
+				let itemDescription = item.description;
+				let itemAmount = item.amount;
+				let itemCost = item.cost;
+
+				// Update the actual list for display.
+				updatedStoreList.append('<li>' + itemAmount + ' x (' + itemId + ') ' + itemName + ': ' + itemDescription + ' for $' + itemCost + '\t\t<input id="amount-' + serviceId + '" class="input" serviceId="' + serviceId + '" type="number" value="0" min="0" max="' + availableForSale + '" step="1" style="float: right"/></li>');
+			}
+
+			// Update our store and remove the loading indicator.
+			$('#itemsOnSale').html(updatedStoreList.html());
+			$('#itemSaleSpinner').remove();
+
+		// Otherwise, display an error from the server.
+		} else if (storeData.status === 'ERROR') {
+			let errorBox = $('#errorBox');
+			errorBox.html(storeData.message);
+			errorBox.show();
+
+		// Otherwise, display an error about an unknown status.
+		} else {
+			let errorBox = $('#errorBox');
+			errorBox.html('Received unknown message status from the server.');
+			errorBox.show();
 		}
-		for (let i = 0; i < storeItems.length; i++) {
-			let item = storeItems[i];
-			let serviceId = item.serviceId;
-			let availableForSale = item.availableForSale;
-			let itemId = item.itemId;
-			let itemName = item.name;
-			let itemDescription = item.description;
-			let itemAmount = item.amount;
-			let itemCost = item.cost;
-
-			// Update the actual list for display.
-			updatedStoreList.append('<li>' + itemAmount + ' x (' + itemId + ') ' + itemName + ': ' + itemDescription + ' for $' + itemCost + '\t\t<input id="amount-' + serviceId + '" class="input" serviceId="' + serviceId + '" type="number" value="0" min="0" max="' + availableForSale + '" step="1" style="float: right"/></li>');
-		}
-
-		// Update our store and remove the loading indicator.
-		$('#itemsOnSale').html(updatedStoreList.html());
-		$('#itemSaleSpinner').remove();
-
-	// Otherwise, display an error from the server.
-	} else if (storeData.status === 'ERROR') {
-		let errorBox = $('#errorBox');
-		errorBox.html(storeData.message);
-		errorBox.show();
-
-	// Otherwise, display an error about an unknown status.
-	} else {
-		let errorBox = $('#errorBox');
-		errorBox.html('Received unknown message status from the server.');
-		errorBox.show();
 	}
 };
 
@@ -278,6 +281,12 @@ function buildRequestList () {
 let setup = async function (config) {
 	console.log('Setting up page given configuration ...');
 
+	// Show the store section of the page if it is disabled.
+	if (window.serverData.storeEnabled) {
+		let itemSalePanel = $('#itemSalePanel');
+		itemSalePanel.show();
+	}
+
 	// Assigning delegate to ascension selection event handler.
 	$('#ownedListGame').on('input', '.input', function (changedEvent) {
 		let itemValue = parseInt($(this).val());
@@ -286,13 +295,14 @@ let setup = async function (config) {
 		console.log(ascensionItems, checkoutItems);
 	});
 
-	// Assigning delegate to purchase checkout event handler.
-	$('#itemsOnSale').on('input', '.input', function (changedEvent) {
-		let amount = parseInt($(this).val());
-		let serviceId = $(this).attr('serviceId');
-		checkoutItems[serviceId] = amount;
-		console.log(ascensionItems, checkoutItems);
-	});
+	// Assigning delegate to purchase checkout event handler if store is enabled.
+	if (window.serverData.storeEnabled) {
+		$('#itemsOnSale').on('input', '.input', function (changedEvent) {
+			let amount = parseInt($(this).val());
+			let serviceId = $(this).attr('serviceId');
+			checkoutItems[serviceId] = amount;
+		});
+	}
 
 	// Get the user's access token and identity.
 	GAME_TOKEN = Cookies.get('gameToken');
