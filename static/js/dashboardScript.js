@@ -250,6 +250,8 @@ async function populateCheckoutCart (shoppingCart) {
 					delete shoppingCart[serviceId];
 					if (Object.keys(shoppingCart).length === 0) {
 						Cookies.remove('shoppingCart');
+					} else {
+						Cookies.set('shoppingCart', JSON.stringify(shoppingCart));
 					}
 				}
 			}
@@ -678,7 +680,7 @@ let setup = async function () {
 		await refreshInventory();
 	};
 	await updateStatus();
-	setInterval(updateStatus, 3000);
+	setInterval(updateStatus, 30000);
 };
 
 // If Ether payments are enabled, we must request permission to enable Web3.
