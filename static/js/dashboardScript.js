@@ -6,8 +6,15 @@ let USER_ADDRESS;
 
 // Track the list of game items which can be ascended.
 let gameItems = [];
+
+// Track the pending orders for item ascension.
 let ascensionItems = {};
+
+// Track the pending orders for items to purchase.
 let checkoutItems = {};
+
+// Debounce refreshing the module interfaces.
+let linkedToEnjin = false;
 
 // A helper function to show an error message on the page.
 function showError (errorMessage) {
@@ -21,6 +28,246 @@ function showStatusMessage (statusMessage) {
 	let messageBox = $('#messageBox');
 	messageBox.html(statusMessage);
 	messageBox.show();
+};
+
+// Initialize the shopping cart to begin accepting additional services.
+async function initializeCart () {
+	let cartContent =
+	`<table id="cart" class="table table-hover table-condensed">
+    <thead>
+      <tr>
+        <th style="width:50%">Product</th>
+        <th style="width:10%">Price</th>
+        <th style="width:8%">Quantity</th>
+        <th style="width:22%" class="text-center">Subtotal</th>
+        <th style="width:10%"></th>
+      </tr>
+    </thead>
+    <tbody id="cartBodyContents">
+    </tbody>
+    <tfoot>
+      <tr id="cart-checkout-row">
+        <td class="col-sm-3 hidden-xs text-center">
+          <strong id="checkout-total">Total $1.99</strong>
+        </td>
+      </tr>
+    </tfoot>
+  </table>`;
+	$('#checkout-cart-container').html(cartContent);
+
+	// Prepare the available payment options that are enabled for checkout.
+	let purchaseMethodsContent = '';
+	if (window.serverData.paypalEnabled) {
+		purchaseMethodsContent +=
+		`<!-- Only embed the PayPal checkout script if PayPal is enabled. -->
+		<td class="col-sm-3">
+			<div id="paypal-button-container"></div>
+		</td>`;
+	}
+	if (window.serverData.etherEnabled) {
+		purchaseMethodsContent +=
+		`<td class="col-sm-3">
+			<button id="payWithEther" type="button" class="btn btn-primary">Pay with ETH</button>
+		</td>`;
+	}
+
+	// If enabled, embed the PayPal script into the page; we must disable cache-busting to make this possible.
+	if (window.serverData.paypalEnabled) {
+		$.ajaxSetup({
+			cache: true
+		});
+		$.getScript(`https://www.paypal.com/sdk/js?client-id=${window.serverData.paypalClientId}`, function () {
+			preparePayPalButtons();
+		});
+	}
+
+	// If enabled, show the checkout cart's Ether payment button.
+	if (window.serverData.etherEnabled) {
+		prepareEtherButton();
+	}
+
+	// Add the payment checkout options.
+	$('#cart-checkout-row').append(purchaseMethodsContent);
+};
+
+// Refresh the checkout cart's total cost and visibility.
+async function refreshCart () {
+	if (Object.keys(checkoutItems).length === 0) {
+		$('#checkout-cart-container').html('Your cart is empty.');
+
+	// Update the total cost of the cart if it contains items.
+	} else {
+		let total = 0;
+		$('.checkout-subtotal').map(function () {
+			total += parseFloat(this.innerHTML.substr(1));
+		});
+		$('#checkout-total').html('Total $' + total.toFixed(2));
+	}
+};
+
+// Add an item listing to the checkout cart.
+async function addItemToCart (service, amount) {
+	let serviceId = service.serviceId;
+	let servicePrice = service.price.toFixed(2);
+	let serviceName = service.serviceMetadata.name;
+	let serviceImage = service.serviceMetadata.image;
+	let serviceDescription = service.serviceMetadata.description;
+	let cartBody = $('#cartBodyContents');
+	let subtotal = (servicePrice * amount).toFixed(2);
+	let itemElement = `<tr id="shopping-row-${serviceId}" class="checkout-service-row" serviceId="${serviceId}">
+		<td data-th="Product">
+			<div class="row">
+				<div class="col-sm-3 hidden-xs">
+					<img src="${serviceImage}" alt="${serviceName}" class="img-responsive" height="100" width="100"/>
+				</div>
+				<div class="col-sm-9">
+					<h4 class="nomargin">${serviceName}</h4>
+					<p>${serviceDescription}</p>
+				</div>
+			</div>
+		</td>
+		<td data-th="Price">$${servicePrice}</td>
+		<td data-th="Quantity">
+			<input id="quantityInput-${serviceId}" serviceId="${serviceId}" servicePrice="${servicePrice}" type="number" class="form-control text-center checkout-quantity-selector" value="${amount}" min="0">
+		</td>
+		<td id="subtotal-${serviceId}" data-th="Subtotal" class="text-center checkout-subtotal">$${subtotal}</td>
+		<td class="actions" data-th="">
+			<button id="deleteService-${serviceId}" class="btn btn-danger btn-sm checkout-deletion" serviceId="${serviceId}">
+				<i class="fa fa-trash-o"></i>
+			</button>
+		</td>
+	</tr>`;
+	cartBody.append(itemElement);
+	await refreshCart();
+};
+
+// Populate the checkout cart from the user's shopping cart cookie.
+async function populateCheckoutCart (shoppingCart) {
+	let cartOffersResponse = await $.post('/sales', { serviceIdFilter: Object.keys(shoppingCart) });
+	if (cartOffersResponse.status === 'SUCCESS') {
+		let cartOffers = cartOffersResponse.offers;
+		for (let i = 0; i < cartOffers.length; i++) {
+			let service = cartOffers[i];
+			let serviceId = service.serviceId;
+			let amount = shoppingCart[serviceId];
+			checkoutItems[serviceId] = amount;
+
+			// Add the service details to the checkout cart.
+			let serviceName = service.serviceMetadata.name;
+			let serviceDescription = service.serviceMetadata.description;
+			await addItemToCart(service, amount);
+
+			// Create a modal detailing this service which can be opened later.
+			let modalContent =
+			`<div class="modal fade" id="bundle-modal-${serviceId}" tabindex="-1" role="dialog" aria-labelledby="exampleModalCenterTitle" aria-hidden="true">
+				<div class="modal-dialog modal-dialog-centered" role="document">
+					<div class="modal-content">
+						<div class="modal-header">
+							<h5 class="modal-title">${serviceName}</h5>
+							<button type="button" class="close" data-dismiss="modal" aria-label="Close">
+								<span aria-hidden="true">&times;</span>
+							</button>
+						</div>
+						<div id="bundle-modal-body-${serviceId}" class="modal-body">
+						</div>
+					</div>
+				</div>
+			</div>`;
+			$('#bundle-modal-container').append(modalContent);
+
+			// Fill out the details for what exactly is contained within this service.
+			let bundleContentsBody =
+			`<p>${serviceDescription}</p>`;
+			let serviceContents = service.contents;
+			for (let j = 0; j < serviceContents.length; j++) {
+				let item = serviceContents[j];
+				let itemId = item.itemId;
+				let itemAmount = item.amount;
+				let itemStock = item.availableForPurchase;
+				let itemName = item.metadata.name;
+				let itemImage = item.metadata.image;
+				let itemDescription = item.metadata.description;
+				let itemEntry =
+				`<div class="row">
+					<div class="col-sm-3 hidden-xs">
+						<img src="${itemImage}" alt="${itemName}" class="img-responsive" height="100" width="100"/>
+					</div>
+					<div class="col-sm-9">
+						<h4 class="nomargin">${itemAmount} x ${itemName} (${itemId})</h4>
+						<p>${itemDescription}</p>
+						<p>There are ${itemStock} of this item left in stock.</p>
+					</div>
+				</div>`;
+				// TODO: make the text there match ordinals for the amount left in stock.
+				bundleContentsBody += itemEntry;
+			}
+			$(`#bundle-modal-body-${serviceId}`).html(bundleContentsBody);
+		}
+
+		// Assign delegate to open a modal when clicking on a bundle.
+		$('#cartBodyContents').on('click', '.checkout-service-row', async function (changedEvent) {
+			if (!$(changedEvent.target).hasClass('checkout-quantity-selector') && !$(changedEvent.target).hasClass('checkout-deletion')) {
+				let serviceId = $(this).attr('serviceId');
+				$(`#bundle-modal-${serviceId}`).modal();
+			}
+		});
+
+		// Assigning delegate to checkout cart quantity selection event handler.
+		$('#cartBodyContents').on('input', '.checkout-quantity-selector', async function (changedEvent) {
+			changedEvent.stopPropagation();
+			let quantity = parseInt($(this).val());
+			let serviceId = $(this).attr('serviceId');
+			let servicePrice = $(this).attr('servicePrice');
+			let subtotal = (quantity * servicePrice);
+			$('#subtotal-' + serviceId).html('$' + subtotal.toFixed(2));
+			checkoutItems[serviceId] = quantity;
+
+			// Manipulate the shopping cart cookie to update the quantity of this chosen service.
+			let shoppingCookie = Cookies.get('shoppingCart');
+			if (shoppingCookie) {
+				let shoppingCart = JSON.parse(shoppingCookie);
+				if (shoppingCart) {
+					shoppingCart[serviceId] = quantity;
+					Cookies.set('shoppingCart', JSON.stringify(shoppingCart));
+				}
+			}
+			await refreshCart();
+		});
+
+		// Assigning delegate to checkout cart deletion event handler.
+		$('#cartBodyContents').on('click', '.checkout-deletion', async function (changedEvent) {
+			changedEvent.stopPropagation();
+			let serviceId = $(this).attr('serviceId');
+			$('#shopping-row-' + serviceId).remove();
+			$(`#bundle-modal-${serviceId}`).remove();
+			delete checkoutItems[serviceId];
+
+			// Manipulate the shopping cart cookie to remove this chosen service.
+			let shoppingCookie = Cookies.get('shoppingCart');
+			if (shoppingCookie) {
+				let shoppingCart = JSON.parse(shoppingCookie);
+				if (shoppingCart) {
+					delete shoppingCart[serviceId];
+					if (Object.keys(shoppingCart).length === 0) {
+						Cookies.remove('shoppingCart');
+					}
+				}
+			}
+			await refreshCart();
+		});
+
+	// If there was an error retrieving items for sale, notify the user.
+	} else if (cartOffersResponse.status === 'ERROR') {
+		let errorBox = $('#errorBox');
+		errorBox.html(cartOffersResponse.message);
+		errorBox.show();
+
+	// Otherwise, display an error about an unknown status.
+	} else {
+		let errorBox = $('#errorBox');
+		errorBox.html('Received unknown message status from the server.');
+		errorBox.show();
+	}
 };
 
 // Refresh the recent user's inventory.
@@ -76,42 +323,44 @@ async function refreshInventory () {
 		// Update our list and remove the loading indicator.
 		gameItems = updatedGameItems;
 
-		// Only show the option to mint on items which can be ascended.
+		// If enabled, show the option to select items which can be ascended.
 		let ascendableItems = new Set();
-		try {
-			let screeningResponse = await $.post(window.serverData.screeningUri, {
-				unscreenedItems: gameItems
-			});
+		if (window.serverData.ascensionEnabled) {
+			try {
+				let screeningResponse = await $.post(window.serverData.screeningUri, {
+					unscreenedItems: gameItems
+				});
 
-			// Display ascendable items within the inventory in a special way.
-			if (screeningResponse.status === 'SCREENED') {
-				let screenedItems = screeningResponse.screenedItems;
-				for (let i = 0; i < screenedItems.length; i++) {
-					let item = screenedItems[i];
-					let itemAmount = item.amount;
-					let itemId = item.id;
-					ascendableItems.add(parseInt(itemId));
-					let itemName = item.name;
-					let itemDescription = item.description;
-					updatedListGame.append('<li>' + itemAmount + ' x (' + itemId + ') ' + itemName + ': ' + itemDescription + '\t\t<input id="amount-' + itemId + '" class="input" itemId="' + itemId + '" type="number" value="0" min="0" max="' + itemAmount + '" step="1" style="float: right"/></li>');
+				// Display ascendable items within the inventory in a special way.
+				if (screeningResponse.status === 'SCREENED') {
+					let screenedItems = screeningResponse.screenedItems;
+					for (let i = 0; i < screenedItems.length; i++) {
+						let item = screenedItems[i];
+						let itemAmount = item.amount;
+						let itemId = item.id;
+						ascendableItems.add(parseInt(itemId));
+						let itemName = item.name;
+						let itemDescription = item.description;
+						updatedListGame.append('<li>' + itemAmount + ' x (' + itemId + ') ' + itemName + ': ' + itemDescription + '\t\t<input id="amount-' + itemId + '" class="input" itemId="' + itemId + '" type="number" value="0" min="0" max="' + itemAmount + '" step="1" style="float: right"/></li>');
+					}
+
+				// If there was a screening error, notify the user.
+				} else if (screeningResponse.status === 'ERROR') {
+					let errorBox = $('#errorBox');
+					errorBox.html(screeningResponse.message);
+					errorBox.show();
+
+				// Otherwise, display an error about an unknown status.
+				} else {
+					let errorBox = $('#errorBox');
+					errorBox.html('Received unknown message status from the server.');
+					errorBox.show();
 				}
 
-			// If there was a screening error, notify the user.
-			} else if (screeningResponse.status === 'ERROR') {
-				let errorBox = $('#errorBox');
-				errorBox.html(screeningResponse.message);
-				errorBox.show();
-
-			// Otherwise, display an error about an unknown status.
-			} else {
-				let errorBox = $('#errorBox');
-				errorBox.html('Received unknown message status from the server.');
-				errorBox.show();
+			// If unable to screen a user's mintable item inventory, show an error.
+			} catch (error) {
+				showError('Unable to verify item mintability at this time.');
 			}
-
-		// If unable to screen a user's mintable item inventory, show an error.
-		} catch (error) {
-			showError('Unable to verify item mintability at this time.');
 		}
 
 		// Also display the unascendable items.
@@ -171,10 +420,58 @@ async function refreshInventory () {
 		$('#ownedListEnjin').html(updatedListEnjin.html());
 		$('#enjinSpinner').remove();
 
+		// Perform the first-time setup of UI modules once linked to Enjin.
+		if (!linkedToEnjin) {
+			linkedToEnjin = true;
+
+			// Assigning delegate to ascension selection event handler.
+			if (window.serverData.ascensionEnabled) {
+				$('#ownedListGame').on('input', '.input', function (changedEvent) {
+					let itemValue = parseInt($(this).val());
+					let itemId = $(this).attr('itemId');
+					ascensionItems[itemId] = itemValue;
+				});
+			}
+
+			// Show the store section of the page if it is disabled.
+			if (window.serverData.storeEnabled) {
+				let itemSalePanel = $('#itemSalePanel');
+				itemSalePanel.show();
+
+				// Assign delegate to purchase checkout event handler.
+				$('#itemsOnSale').on('input', '.input', function (changedEvent) {
+					let amount = parseInt($(this).val());
+					let serviceId = $(this).attr('serviceId');
+					checkoutItems[serviceId] = amount;
+				});
+			}
+
+			// If the checkout cart is enabled, process its cookie and display items.
+			if (window.serverData.checkoutEnabled) {
+				$('#checkout-cart-panel').show();
+				let shoppingCookie = Cookies.get('shoppingCart');
+				if (shoppingCookie) {
+					let shoppingCart = JSON.parse(shoppingCookie);
+					if (!shoppingCart || Object.keys(shoppingCart).length === 0) {
+						$('#checkout-cart-container').html('Your cart is empty.');
+
+					// Initialize the cart with items from the cookie.
+					} else {
+						await initializeCart();
+						populateCheckoutCart(shoppingCart);
+					}
+				}
+
+				// Remove the spinner since we've finished loading the cart details.
+				$('#checkout-cart-spinner').remove();
+			}
+		}
+
 	// Otherwise, notify the user that they must link an Enjin address.
 	} else if (connectionData.status === 'MUST_LINK') {
+		linkedToEnjin = false;
 		let code = connectionData.code;
-		$('#enjinMessage').html('You must link your Enjin wallet to ' + code);
+		$('#enjinMessage').html('Before you can see your Enjin-backed assets or purchase services you must link your Enjin wallet. Your linking code is: ' + code);
 		$('#linkingQR').html('<img src="' + connectionData.qr + '"></img>');
 		$('#ownedTitleEnjin').html('You do not own any Enjin ERC-1155 items.');
 		$('#ownedListEnjin').empty();
@@ -183,6 +480,7 @@ async function refreshInventory () {
 
 	// Otherwise, display an error from the server.
 	} else if (connectionData.status === 'ERROR') {
+		linkedToEnjin = false;
 		let errorBox = $('#errorBox');
 		errorBox.html(connectionData.message);
 		errorBox.show();
@@ -236,6 +534,51 @@ async function refreshInventory () {
 	}
 };
 
+// Prepare the PayPal buttons for item checkout.
+async function preparePayPalButtons () {
+	paypal.Buttons({
+		style: {
+			layout: 'horizontal'
+		},
+
+		createOrder: async function () {
+			let data = await $.post('/checkout', {
+				requestedServices: buildRequestList(),
+				paymentMethod: 'PAYPAL'
+			});
+			return data.orderID;
+		},
+
+		// Capture the funds from the transaction and validate approval with server.
+		onApprove: async function (data) {
+			let status = await $.post('/approve', data);
+			if (status === 'OK') {
+				console.log('Transaction completed successfully.');
+				showStatusMessage('Your purchase was received and is now pending!');
+			} else {
+				console.error(status, 'Transaction failed.');
+			}
+		}
+	}).render('#paypal-button-container');
+};
+
+// Prepare the Ether button for item checkout.
+async function prepareEtherButton () {
+	$('#payWithEther').click(async function () {
+		const provider = new ethers.providers.Web3Provider(web3.currentProvider);
+		const signer = provider.getSigner();
+		const purchaser = web3.eth.accounts[0];
+
+		// Retrieve and sign a payment transaction generated by the server.
+		let transaction = await $.post('/checkout', {
+			requestedServices: buildRequestList(),
+			paymentMethod: 'ETHER',
+			purchaser: purchaser
+		});
+		await signer.sendTransaction(transaction);
+	});
+};
+
 // Prepares all services being requested by a user for purchase.
 function buildRequestList () {
 	let order = [];
@@ -278,31 +621,8 @@ function buildRequestList () {
 };
 
 // A function which asynchronously sets up the page.
-let setup = async function (config) {
-	console.log('Setting up page given configuration ...');
-
-	// Show the store section of the page if it is disabled.
-	if (window.serverData.storeEnabled) {
-		let itemSalePanel = $('#itemSalePanel');
-		itemSalePanel.show();
-	}
-
-	// Assigning delegate to ascension selection event handler.
-	$('#ownedListGame').on('input', '.input', function (changedEvent) {
-		let itemValue = parseInt($(this).val());
-		let itemId = $(this).attr('itemId');
-		ascensionItems[itemId] = itemValue;
-		console.log(ascensionItems, checkoutItems);
-	});
-
-	// Assigning delegate to purchase checkout event handler if store is enabled.
-	if (window.serverData.storeEnabled) {
-		$('#itemsOnSale').on('input', '.input', function (changedEvent) {
-			let amount = parseInt($(this).val());
-			let serviceId = $(this).attr('serviceId');
-			checkoutItems[serviceId] = amount;
-		});
-	}
+let setup = async function () {
+	console.log(`Setting up page. Ascension: ${window.serverData.ascensionEnabled}; Store: ${window.serverData.storeEnabled}; Checkout: ${window.serverData.checkoutEnabled}.`);
 
 	// Get the user's access token and identity.
 	GAME_TOKEN = Cookies.get('gameToken');
@@ -342,47 +662,9 @@ let setup = async function (config) {
 
 	// If unable to retrieve the user profile information, show an error.
 	} catch (error) {
+		console.error(error);
 		showError('Unable to retrieve user profile.');
 	}
-
-	// Assign functionality to the modal's PayPal checkout button.
-	paypal.Buttons({
-		createOrder: async function () {
-			let data = await $.post('/checkout', {
-				requestedServices: buildRequestList(),
-				paymentMethod: 'PAYPAL'
-			});
-			return data.orderID;
-		},
-
-		// Capture the funds from the transaction and validate approval with server.
-		onApprove: async function (data) {
-			let status = await $.post('/approve', data);
-			if (status === 'OK') {
-				console.log('Transaction completed successfully.');
-				showStatusMessage('Your purchase was received and is now pending!');
-			} else {
-				console.error(status, 'Transaction failed.');
-			}
-		}
-	}).render('#paypal-button-container');
-
-	// Assign functionality to the modal's Pay-with-ETH button.
-	$('#payWithEther').click(async function () {
-		const provider = new ethers.providers.Web3Provider(web3.currentProvider);
-		const signer = provider.getSigner();
-		const purchaser = web3.eth.accounts[0];
-
-		// Retrieve and sign a payment transaction generated by the server.
-		let transaction = await $.post('/checkout', {
-			requestedServices: buildRequestList(),
-			paymentMethod: 'ETHER',
-			purchaser: purchaser
-		});
-		// transaction.from = web3.eth.accounts[0];
-		console.log(transaction);
-		await signer.sendTransaction(transaction);
-	});
 
 	// Assign functionality to the example logout button.
 	$('#logoutButton').click(async function () {
@@ -396,26 +678,35 @@ let setup = async function (config) {
 		await refreshInventory();
 	};
 	await updateStatus();
-	setInterval(updateStatus, 30000);
+	setInterval(updateStatus, 3000);
 };
 
-// Request permission to enable Web3.
+// If Ether payments are enabled, we must request permission to enable Web3.
 window.addEventListener('load', async () => {
-	if (window.ethereum) {
-		window.web3 = new Web3(window.ethereum);
-		try {
-			await window.ethereum.enable();
-		} catch (error) {
-			console.error(error);
-		}
-	}	else if (window.web3) {
-		window.web3 = new Web3(window.web3.currentProvider);
-	}	else {
-		console.log('Non-Ethereum browser detected. You should consider trying MetaMask!');
-	}
-});
+	if (window.serverData.checkoutEnabled && window.serverData.etherEnabled) {
+		if (window.ethereum) {
+			window.web3 = new Web3(window.ethereum);
 
-// Parse the configuration file and pass to setup.
-$.getJSON('js/config.json', function (config) {
-	setup(config);
+			// If Ethereum is present, try to access it.
+			try {
+				await window.ethereum.enable();
+				window.ethereum.autoRefreshOnNetworkChange = false;
+			} catch (error) {
+				console.error(error);
+				showError('Issue with Ethereum detected. You should consider trying MetaMask!');
+			}
+
+		// Otherwise, attempt to use the current Web3 context.
+		}	else if (window.web3) {
+			window.web3 = new Web3(window.web3.currentProvider);
+
+		// Otherwise, notify the user of this error.
+		}	else {
+			console.error('Non-Ethereum browser detected. You should consider trying MetaMask!');
+			showError('Non-Ethereum browser detected. You should consider trying MetaMask!');
+		}
+	}
+
+	// Set up the rest of the page.
+	setup();
 });

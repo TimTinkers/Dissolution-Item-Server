@@ -66,6 +66,16 @@ let server = app.listen(EXPRESS_PORT, async function () {
 		return;
 	}
 
+	// Verify that payment methods for checkout were actually provided.
+	if (process.env.CHECKOUT_ENABLED === 'true') {
+		if (process.env.PAYPAL_ENABLED === 'false' &&
+		process.env.ETHER_ENABLED === 'false') {
+			console.error(process.env.NO_PAYMENT_METHOD_AVAILABLE);
+			server.close();
+			return;
+		}
+	}
+
 	// Attempt to log into the game with the administrator.
 	try {
 		const gameLoginData = JSON.stringify({
@@ -126,7 +136,7 @@ let server = app.listen(EXPRESS_PORT, async function () {
 			console.log(util.format(process.env.ENJIN_LOGIN_SUCCESS_MESSAGE, APPLICATION, ENJIN_ADMIN_USER_ID, ENJIN_ADMIN_IDENTITY_ID, ENJIN_ADMIN_ETHEREUM_ADDRESS));
 
 			// Setup PayPal if it is an enabled payment processor.
-			if (process.env.PAYPAL_ENABLED) {
+			if (process.env.PAYPAL_ENABLED === 'true') {
 				let paypalClientId = process.env.PAYPAL_CLIENT_ID;
 				let paypalSecret = process.env.PAYPAL_CLIENT_SECRET;
 
@@ -274,7 +284,11 @@ app.get('/', asyncMiddleware(async (req, res, next) => {
 			gameProfileUri: process.env.GAME_PROFILE_URI,
 			gameMintScreenUri: process.env.GAME_MINT_SCREEN_URI,
 			paypalClientId: process.env.PAYPAL_CLIENT_ID,
-			storeEnabled: process.env.STORE_ENABLED
+			ascensionEnabled: process.env.ASCENSION_ENABLED,
+			storeEnabled: process.env.STORE_ENABLED,
+			checkoutEnabled: process.env.CHECKOUT_ENABLED,
+			paypalEnabled: process.env.PAYPAL_ENABLED,
+			etherEnabled: process.env.ETHER_ENABLED
 		});
 	});
 }));
@@ -471,9 +485,7 @@ app.post('/connect', asyncMiddleware(async (req, res, next) => {
 	});
 }));
 
-// TODO: return to fixing this portion for future self-hosted bits.
-// TODO: add metadata to service bundles.
-// Retrieve items that are for sale.
+// Retrieve details about services that are for sale.
 app.post('/sales', asyncMiddleware(async (req, res, next) => {
 	loginValidator(req, res, async function (gameToken, decoded) {
 		try {
@@ -486,25 +498,47 @@ app.post('/sales', asyncMiddleware(async (req, res, next) => {
 			for (let i = 0; i < storeItems.length; i++) {
 				let storeItem = storeItems[i];
 				let serviceId = storeItem.serviceId;
+				let serviceMetadata = JSON.parse(storeItem.serviceMetadata);
 				let price = storeItem.price;
-				let bundleItems = storeItem.bundleItems;
-				let bundleAmounts = storeItem.bundleAmounts;
-				let bundleSupplies = storeItem.bundleSupplies;
-				let bundleMetadata = storeItem.bundleMetadata;
-				let metadata = JSON.parse(storeItem.metadata);
+				let bundleItems = storeItem.bundleItems.split(',');
+				let bundleAmounts = storeItem.bundleAmounts.split(',');
+				let bundleSupplies = storeItem.bundleSupplies.split(',');
+				let bundleMetadataRaw = storeItem.bundleMetadata.split('|');
+				let contents = [];
+				for (let i = 0; i < bundleMetadataRaw.length; i++) {
+					let item = {};
+					item.itemId = bundleItems[i];
+					item.amount = parseInt(bundleAmounts[i]);
+					item.metadata = JSON.parse(bundleMetadataRaw[i]);
+					item.availableForPurchase = parseInt(bundleSupplies[i]);
+					contents.push(item);
+				}
 				offers.push({
 					serviceId: serviceId,
-					availableForSale: storeItem.availableForSale,
-					itemId: storeItem.itemId,
-					name: metadata.name,
-					description: metadata.description,
-					amount: storeItem.amount,
-					cost: price
+					serviceMetadata: serviceMetadata,
+					price: price,
+					contents: contents
 				});
 			}
 
-			// Return the screened inventory items.
-			res.send({ status: 'SUCCESS', offers: offers });
+			// TODO: optimize this by issuing a special pre-filtered query.
+			// If the user is requesting to filter the order, then do so.
+			let serviceIdFilter = req.body.serviceIdFilter;
+			if (serviceIdFilter) {
+				let filterSet = new Set(serviceIdFilter.map(Number));
+				let filteredOffers = [];
+				for (let i = 0; i < offers.length; i++) {
+					let offer = offers[i];
+					if (filterSet.has(offer.serviceId)) {
+						filteredOffers.push(offer);
+					}
+				}
+				res.send({ status: 'SUCCESS', offers: filteredOffers });
+
+			// Return the unfiltered services that are for sale.
+			} else {
+				res.send({ status: 'SUCCESS', offers: offers });
+			}
 
 		// If we are unable to retrieve the store, log an error and notify the user.
 		} catch (error) {
@@ -602,7 +636,7 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 
 				// Ascension is a fairly-complicated service that uses its own supply options so we handle that separately.
 				if (serviceId === 'ASCENSION') {
-					if (!process.env.ASCENSION_ENABLED) {
+					if (process.env.ASCENSION_ENABLED === 'false') {
 						res.send({ status: 'ERROR', message: process.env.ASCENSION_DISABLED_ERROR });
 						return;
 					}
@@ -710,12 +744,11 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 			}
 
 			// Retrieve the user's chosen payment method.
-			let paypalEnabled = process.env.PAYPAL_ENABLED;
 			let paymentMethod = req.body.paymentMethod;
 
 			// If Paypal is not enabled, notify the user as such.
 			if (paymentMethod === 'PAYPAL') {
-				if (!paypalEnabled) {
+				if (process.env.PAYPAL_ENABLED === 'false') {
 					res.send({ status: 'ERROR', message: process.env.PAYPAL_DISABLED_ERROR });
 					return;
 				}
@@ -820,10 +853,14 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 
 			// If the user has chosen to pay with Ether, generate a transaction.
 			} else if (paymentMethod === 'ETHER') {
-				let serializableAscensionMap = {};
+				if (process.env.ETHER_ENABLED === 'false') {
+					res.send({ status: 'ERROR', message: process.env.ETHER_DISABLED_ERROR });
+					return;
+				}
 
 				// TODO: lock the items in escrow while payment pends.
 				// Format and store the order history to deliver upon later payment.
+				let serializableAscensionMap = {};
 				for (let itemId of ascensionReadyItems.keys()) {
 					serializableAscensionMap[itemId] = ascensionReadyItems.get(itemId);
 				}
@@ -877,14 +914,13 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 
 // Handle a user approving a PayPal transaction.
 app.post('/approve', asyncMiddleware(async (req, res, next) => {
-	let paypalEnabled = process.env.PAYPAL_ENABLED;
-	if (!paypalEnabled) {
+	if (process.env.PAYPAL_ENABLED === 'false') {
 		res.sendStatus(400);
 		return;
 	}
-	const orderId = req.body.orderID;
 
 	// Try to capture the PayPal order and log the status in our database.
+	const orderId = req.body.orderID;
 	const request = new paypal.orders.OrdersCaptureRequest(orderId);
 	request.requestBody({});
 	try {

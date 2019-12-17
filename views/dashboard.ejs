@@ -12,7 +12,7 @@
 
     <link href="/css/bootstrap.min.css" rel="stylesheet">
     <link href="/css/style.css" rel="stylesheet">
-
+    <link href="https://maxcdn.bootstrapcdn.com/font-awesome/4.1.0/css/font-awesome.min.css" rel="stylesheet">
   </head>
   <body>
 
@@ -107,11 +107,29 @@
             </ul>
           </div>
 
-          <br />
-          <div id="paypal-button-container"></div>
-          <button id="payWithEther" type="button" class="btn btn-primary">Pay with ETH</button>
+          <!-- A panel for displaying orders in the user's shopping cart. -->
+          <div id="checkout-cart-panel" class="collapse panel panel-default">
+            <h2>
+              Your Checkout Cart
+            </h2>
+
+            <!-- This section displays services added to the cart. -->
+            <div id="checkout-cart-container">
+              Your cart is empty.
+            </div>
+            <div id="checkout-cart-spinner" class="d-flex justify-content-center">
+              <div class="spinner-border" role="status">
+                <span class="sr-only">Loading...</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- This div is a container for future modals. -->
+          <div id="bundle-modal-container">
+          </div>
 
           <!-- A button that logs the user out. -->
+          <br />
           <button id="logoutButton" class="btn btn-primary">Logout</button>
 
           <!-- An alert for the most-recent error to be displayed. -->
@@ -129,9 +147,15 @@
       window.serverData.metadataUri = '<%= gameMetadataUri %>';
       window.serverData.profileUri = '<%= gameProfileUri %>';
       window.serverData.screeningUri = '<%= gameMintScreenUri %>';
+      window.serverData.ascensionEnabled = ('<%= ascensionEnabled %>' === 'true');
       window.serverData.storeEnabled = ('<%= storeEnabled %>' === 'true');
+      window.serverData.checkoutEnabled = ('<%= checkoutEnabled %>' === 'true');
+      window.serverData.paypalEnabled = ('<%= paypalEnabled %>' === 'true');
+      window.serverData.paypalClientId = '<%= paypalClientId %>';
+      window.serverData.etherEnabled = ('<%= etherEnabled %>' === 'true');
     </script>
-    <script src="https://www.paypal.com/sdk/js?client-id=<%= paypalClientId %>" type="text/javascript"></script>
+
+    <!-- Import requisite client-side scripts. -->
     <script src="/js/jquery.min.js" type="text/javascript"></script>
     <script src="/js/js.cookie.js" type="text/javascript"></script>
     <script src="/js/bootstrap.min.js" type="text/javascript"></script>
