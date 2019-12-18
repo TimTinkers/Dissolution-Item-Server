@@ -248,30 +248,64 @@ function loginValidator (req, res, onValidLogin) {
 	}
 };
 
-// TODO: move this function into a dedicated pair of lambda functions.
-// TODO: treat ascension like just one more service in this list.
 // A helper function to retrieve the set of services that are for sale.
-async function getServiceMap (serviceIdFilter) {
-	let databaseName = process.env.DATABASE;
-	let sql = util.format(process.env.AVAILABLE_SERVICES_QUERY, databaseName, databaseName, databaseName);
+async function getServicesForSale (serviceIdFilter) {
+	try {
+		let databaseName = process.env.DATABASE;
 
-	// As an optimization, only check for item sales against a given filter.
-	let serviceIdList = '';
-	for (let i = 0; i < serviceIdFilter.length; i++) {
-		let serviceId = serviceIdFilter[i];
-		serviceIdList += (serviceId + ',');
-	}
-	serviceIdList = serviceIdList.slice(0, -1);
-	let values = [ serviceIdList ];
+		// Fetch active sale offers from the database.
+		let offers = [];
+		let sql = util.format(process.env.GET_ALL_ITEMS_FOR_SALE, databaseName, databaseName, databaseName, databaseName, databaseName);
+		let storeItems = await DATABASE_CONNECTION.query(sql);
+		for (let i = 0; i < storeItems.length; i++) {
+			let storeItem = storeItems[i];
+			let serviceId = storeItem.serviceId;
+			let serviceMetadata = JSON.parse(storeItem.serviceMetadata);
+			let price = storeItem.price;
+			let bundleItems = storeItem.bundleItems.split(',');
+			let bundleAmounts = storeItem.bundleAmounts.split(',');
+			let bundleSupplies = storeItem.bundleSupplies.split(',');
+			let bundleMetadataRaw = storeItem.bundleMetadata.split('|');
+			let contents = [];
+			for (let i = 0; i < bundleMetadataRaw.length; i++) {
+				let item = {};
+				item.itemId = bundleItems[i];
+				item.amount = parseInt(bundleAmounts[i]);
+				item.metadata = JSON.parse(bundleMetadataRaw[i]);
+				item.availableForPurchase = parseInt(bundleSupplies[i]);
+				contents.push(item);
+			}
+			offers.push({
+				serviceId: serviceId,
+				serviceMetadata: serviceMetadata,
+				price: price,
+				contents: contents
+			});
+		}
 
-	// Return a map of the items being sold.
-	let rows = await DATABASE_CONNECTION.query(sql, values);
-	let serviceMap = new Map();
-	for (let i = 0; i < rows.length; i++) {
-		let row = rows[i];
-		serviceMap.set(row.serviceId, row);
+		// TODO: optimize this by issuing a special pre-filtered query.
+		// If the user is requesting to filter the order, then do so.
+		if (serviceIdFilter) {
+			let filterSet = new Set(serviceIdFilter.map(Number));
+			let filteredOffers = [];
+			for (let i = 0; i < offers.length; i++) {
+				let offer = offers[i];
+				if (filterSet.has(offer.serviceId)) {
+					filteredOffers.push(offer);
+				}
+			}
+			return { status: 'SUCCESS', offers: filteredOffers };
+
+		// Return the unfiltered services that are for sale.
+		} else {
+			return { status: 'SUCCESS', offers: offers };
+		}
+
+	// If we are unable to retrieve the store, log an error and notify the user.
+	} catch (error) {
+		console.error(process.env.UNABLE_TO_RETRIEVE_STORE, error);
+		return { status: 'ERROR', message: process.env.UNABLE_TO_RETRIEVE_STORE };
 	}
-	return serviceMap;
 };
 
 // Validate whether a user has logged in and handle appropriate routing.
@@ -488,63 +522,8 @@ app.post('/connect', asyncMiddleware(async (req, res, next) => {
 // Retrieve details about services that are for sale.
 app.post('/sales', asyncMiddleware(async (req, res, next) => {
 	loginValidator(req, res, async function (gameToken, decoded) {
-		try {
-			let databaseName = process.env.DATABASE;
-
-			// Fetch active sale offers from the database.
-			let offers = [];
-			let sql = util.format(process.env.GET_ALL_ITEMS_FOR_SALE, databaseName, databaseName, databaseName, databaseName, databaseName);
-			let storeItems = await DATABASE_CONNECTION.query(sql);
-			for (let i = 0; i < storeItems.length; i++) {
-				let storeItem = storeItems[i];
-				let serviceId = storeItem.serviceId;
-				let serviceMetadata = JSON.parse(storeItem.serviceMetadata);
-				let price = storeItem.price;
-				let bundleItems = storeItem.bundleItems.split(',');
-				let bundleAmounts = storeItem.bundleAmounts.split(',');
-				let bundleSupplies = storeItem.bundleSupplies.split(',');
-				let bundleMetadataRaw = storeItem.bundleMetadata.split('|');
-				let contents = [];
-				for (let i = 0; i < bundleMetadataRaw.length; i++) {
-					let item = {};
-					item.itemId = bundleItems[i];
-					item.amount = parseInt(bundleAmounts[i]);
-					item.metadata = JSON.parse(bundleMetadataRaw[i]);
-					item.availableForPurchase = parseInt(bundleSupplies[i]);
-					contents.push(item);
-				}
-				offers.push({
-					serviceId: serviceId,
-					serviceMetadata: serviceMetadata,
-					price: price,
-					contents: contents
-				});
-			}
-
-			// TODO: optimize this by issuing a special pre-filtered query.
-			// If the user is requesting to filter the order, then do so.
-			let serviceIdFilter = req.body.serviceIdFilter;
-			if (serviceIdFilter) {
-				let filterSet = new Set(serviceIdFilter.map(Number));
-				let filteredOffers = [];
-				for (let i = 0; i < offers.length; i++) {
-					let offer = offers[i];
-					if (filterSet.has(offer.serviceId)) {
-						filteredOffers.push(offer);
-					}
-				}
-				res.send({ status: 'SUCCESS', offers: filteredOffers });
-
-			// Return the unfiltered services that are for sale.
-			} else {
-				res.send({ status: 'SUCCESS', offers: offers });
-			}
-
-		// If we are unable to retrieve the store, log an error and notify the user.
-		} catch (error) {
-			console.error(process.env.UNABLE_TO_RETRIEVE_STORE, error);
-			res.send({ status: 'ERROR', message: process.env.UNABLE_TO_RETRIEVE_STORE });
-		}
+		let serviceIdFilter = req.body.serviceIdFilter;
+		res.send(await getServicesForSale(serviceIdFilter));
 	});
 }));
 
@@ -612,18 +591,24 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 				res.send({ status: 'ERROR', message: process.env.NO_ASCENSION_ITEMS_CHOSEN });
 				return;
 			}
-			console.log(requestedServices);
+			console.log(userId, requestedServices);
 
 			// Retrieve the services that are available for sale.
 			let serviceIdFilter = [];
 			for (let i = 0; i < requestedServices.length; i++) {
 				let service = requestedServices[i];
-				let serviceId = service.id;
+				let serviceId = parseInt(service.id);
 				if (serviceId !== 'ASCENSION') {
 					serviceIdFilter.push(serviceId);
 				}
 			};
-			let availableServices = await getServiceMap(serviceIdFilter);
+			let availableServicesResponse = await getServicesForSale(serviceIdFilter);
+			let availableServicesArray = availableServicesResponse.offers;
+			let availableServicesMap = new Map();
+			for (let i = 0; i < availableServicesArray.length; i++) {
+				let availableService = availableServicesArray[i];
+				availableServicesMap.set(availableService.serviceId, availableService);
+			}
 
 			// Calculate the cost for the services that a user is requesting to buy.
 			let totalCost = 0;
@@ -716,15 +701,21 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 					}
 
 				// Check for the availability of particular services.
-				} else if (availableServices.has(parseInt(serviceId))) {
-					let serviceInformation = availableServices.get(parseInt(serviceId));
-					let itemAmount = serviceInformation.amount;
-					let availableItemAmount = serviceInformation.availableForSale;
+				} else if (availableServicesMap.has(parseInt(serviceId))) {
+					let serviceInformation = availableServicesMap.get(parseInt(serviceId));
+					let serviceContents = serviceInformation.contents;
 
-					// If the service is for sale, make sure it is still in supply.
-					if (itemAmount > availableItemAmount) {
-						res.send({ status: 'ERROR', message: process.env.OUT_OF_STOCK });
-						return;
+					// Validate that all items in this service are available.
+					for (let j = 0; j < serviceContents.length; j++) {
+						let item = serviceContents[j];
+						let itemAmount = item.amount;
+						let itemStock = item.availableForPurchase;
+
+						// If the service is for sale, make sure it is still in supply.
+						if (itemAmount > itemStock) {
+							res.send({ status: 'ERROR', message: process.env.OUT_OF_STOCK });
+							return;
+						}
 					}
 
 					// Add this validated service purchase to the total order.
@@ -759,17 +750,15 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 					let service = confirmedToPurchaseItems[i];
 					let serviceInformation = service.serviceInformation;
 					let purchasedAmount = service.purchasedAmount;
-					let metadata = JSON.parse(serviceInformation.metadata);
-					let itemName = metadata.name;
-					let itemDescription = metadata.description;
-					let itemPrice = serviceInformation.price;
-					let itemAmount = serviceInformation.amount;
+					let serviceName = serviceInformation.serviceMetadata.name;
+					let serviceDescription = serviceInformation.serviceMetadata.description;
+					let servicePrice = serviceInformation.price;
 					purchasedItemsList.push({
-						name: (itemAmount + ' x ' + itemName),
-						description: itemDescription.substring(0, 127),
+						name: (purchasedAmount + ' x ' + serviceName),
+						description: serviceDescription.substring(0, 127),
 						unit_amount: {
 							currency_code: 'USD',
-							value: (itemPrice * 1.00)
+							value: (servicePrice * 1.00)
 						},
 						quantity: purchasedAmount,
 						category: 'DIGITAL_GOODS'
@@ -974,42 +963,59 @@ app.post('/approve', asyncMiddleware(async (req, res, next) => {
 			for (let i = 0; i < purchasedItems.length; i++) {
 				let service = purchasedItems[i];
 				let serviceInformation = service.serviceInformation;
-				let itemId = serviceInformation.itemId;
-				let itemAmount = serviceInformation.amount;
-				let purchasedAmount = service.purchasedAmount;
-				let amountToMint = (itemAmount * purchasedAmount);
+				let purchasedAmount = parseInt(service.purchasedAmount);
+				let serviceContents = serviceInformation.contents;
 
-				// Get the user's address and verify it is not the zero address.
-				sql = util.format(process.env.GET_LAST_ADDRESS, databaseName);
-				values = [ userId ];
-				rows = await DATABASE_CONNECTION.query(sql, values);
-				let userAddress = rows[0].lastAddress;
-				if (userAddress === '0x0000000000000000000000000000000000000000') {
-					res.sendStatus(400);
-					return;
+				// Find the amount that must be minted for each item in the service.
+				for (let j = 0; j < serviceContents.length; j++) {
+					let item = serviceContents[j];
+					let itemId = item.itemId;
+					let itemAmount = item.amount;
+					let amountToMint = (itemAmount * purchasedAmount);
 
-				// Retrieve the Enjin token identifier corresponding to this item.
-				} else {
-					sql = util.format(process.env.GET_ENJIN_ITEM_ID, databaseName, process.env.NETWORK_SUFFIX);
-					values = [ itemId ];
+					// Get the user's address and verify it is not the zero address.
+					sql = util.format(process.env.GET_LAST_ADDRESS, databaseName);
+					values = [ userId ];
 					rows = await DATABASE_CONNECTION.query(sql, values);
-					let enjinTokenId = rows[0].enjinId;
+					let userAddress = rows[0].lastAddress;
+					if (userAddress === '0x0000000000000000000000000000000000000000') {
+						res.sendStatus(400);
+						return;
 
-					// Issue a transaction to mint the user's purchase on Enjin.
-					let enjinPlatformUrl = process.env.ENJIN_PLATFORM_URL;
-					let client = new GraphQLClient(enjinPlatformUrl, {
-						headers: {
-							'Authorization': 'Bearer ' + ENJIN_ADMIN_ACCESS_TOKEN,
-							'X-App-Id': process.env.GAME_APP_ID
+					// Retrieve the Enjin token identifier corresponding to this item.
+					} else {
+						sql = util.format(process.env.GET_ENJIN_ITEM_ID, databaseName, process.env.NETWORK_SUFFIX);
+						values = [ itemId ];
+						rows = await DATABASE_CONNECTION.query(sql, values);
+						if (!rows[0]) {
+							res.sendStatus(400);
+							return;
 						}
-					});
-					const enjinMintData = JSON.stringify({
-						id: process.env.GAME_APP_ID,
-						tokenId: enjinTokenId,
-						address: userAddress,
-						amount: amountToMint
-					});
-					await client.request(process.env.ENJIN_MINT_MUTATION, enjinMintData);
+						let enjinTokenId = rows[0].enjinId;
+
+						// Issue a transaction to mint the user's purchase on Enjin.
+						let enjinPlatformUrl = process.env.ENJIN_PLATFORM_URL;
+						let client = new GraphQLClient(enjinPlatformUrl, {
+							headers: {
+								'Authorization': 'Bearer ' + ENJIN_ADMIN_ACCESS_TOKEN,
+								'X-App-Id': process.env.GAME_APP_ID
+							}
+						});
+						const enjinMintData = JSON.stringify({
+							id: process.env.GAME_APP_ID,
+							tokenId: enjinTokenId,
+							address: userAddress,
+							amount: amountToMint
+						});
+						let mintResponse = await client.request(process.env.ENJIN_MINT_MUTATION, enjinMintData);
+
+						// Decrease the available supply of the item being minted.
+						if (mintResponse && mintResponse.request && mintResponse.request.state === 'PENDING') {
+							sql = util.format(process.env.REDUCE_ITEM_STOCK, databaseName);
+							values = [ amountToMint, itemId ];
+							await DATABASE_CONNECTION.query(sql, values);
+						}
+					}
 				}
 			}
 
