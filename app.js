@@ -308,6 +308,40 @@ async function getServicesForSale (serviceIdFilter) {
 	}
 };
 
+// A helper function to calculate the user's discount from tokens.
+async function getDiscount (address) {
+	if (process.env.DISCOUNT_TOKEN_ENABLED === 'false') {
+		return { status: 'SUCCESS', discount: 0 };
+	}
+
+	// If the discount is enabled, fetch it from the discount token list.
+	try {
+		let provider = ethers.getDefaultProvider(process.env.NETWORK_SUFFIX);
+		let enjinContractAddress = '0x0000000000000000000000000000000000000000';
+		if (process.env.NETWORK_SUFFIX === 'kovan') {
+			enjinContractAddress = process.env.ENJIN_ITEMS_ADDRESS_KOVAN;
+		} else if (process.env.NETWORK_SUFFIX === 'main') {
+			enjinContractAddress = process.env.ENJIN_ITEMS_ADDRESS_MAIN;
+		}
+		let enjinContract = new ethers.Contract(enjinContractAddress, process.env.ENJIN_ITEMS_ABI, provider);
+
+		// Once connected to the smart contract, find a discount based on the number of discount tokens that the user holds.
+		let discountTokenBalance = await enjinContract.balanceOf(address, process.env.DISCOUNT_TOKEN_ID);
+		let discountPerToken = parseFloat(process.env.DISCOUNT_PER_TOKEN);
+		let totalDiscount = (discountTokenBalance * discountPerToken);
+		let discountCap = parseFloat(process.env.DISCOUNT_CAP);
+		if (totalDiscount > discountCap) {
+			totalDiscount = discountCap;
+		}
+		return { status: 'SUCCESS', discount: totalDiscount };
+
+	// If we are unable to calculate the user's discount, log an error.
+	} catch (error) {
+		console.error(process.env.UNABLE_TO_FIND_DISCOUNT, error);
+		return { status: 'ERROR', message: process.env.UNABLE_TO_FIND_DISCOUNT };
+	}
+};
+
 // Validate whether a user has logged in and handle appropriate routing.
 app.get('/', asyncMiddleware(async (req, res, next) => {
 	loginValidator(req, res, function (gameToken, decoded) {
@@ -320,6 +354,7 @@ app.get('/', asyncMiddleware(async (req, res, next) => {
 			paypalClientId: process.env.PAYPAL_CLIENT_ID,
 			ascensionEnabled: process.env.ASCENSION_ENABLED,
 			storeEnabled: process.env.STORE_ENABLED,
+			discountTokenEnabled: process.env.DISCOUNT_TOKEN_ENABLED,
 			checkoutEnabled: process.env.CHECKOUT_ENABLED,
 			paypalEnabled: process.env.PAYPAL_ENABLED,
 			etherEnabled: process.env.ETHER_ENABLED
@@ -527,6 +562,14 @@ app.post('/sales', asyncMiddleware(async (req, res, next) => {
 	});
 }));
 
+// Retrieve the user's total discount.
+app.post('/get-discount', asyncMiddleware(async (req, res, next) => {
+	loginValidator(req, res, async function (gameToken, decoded) {
+		let address = req.body.address;
+		res.send(await getDiscount(address));
+	});
+}));
+
 // Screen items in a user's inventory to make sure they may be ascended.
 app.post('/screen-items', asyncMiddleware(async (req, res, next) => {
 	loginValidator(req, res, async function (gameToken, decoded) {
@@ -586,6 +629,7 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 			let userId = profileResponse.userId;
 
 			// Try to retrieve the user's requested services.
+			let databaseName = process.env.DATABASE;
 			let requestedServices = req.body.requestedServices;
 			if (!requestedServices) {
 				res.send({ status: 'ERROR', message: process.env.NO_ASCENSION_ITEMS_CHOSEN });
@@ -744,7 +788,24 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 					return;
 				}
 
+				// Apply a discount to the total cost based on the user's discount tokens.
+				let discountMultiplier = 1.00;
+				if (process.env.DISCOUNT_TOKEN_ENABLED === 'true') {
+					let sql = util.format(process.env.GET_LAST_ADDRESS, databaseName);
+					let values = [ userId ];
+					let rows = await DATABASE_CONNECTION.query(sql, values);
+					let userAddress = rows[0].lastAddress;
+					if (userAddress !== '0x0000000000000000000000000000000000000000') {
+						let discountResponse = await getDiscount(userAddress);
+						if (discountResponse.status === 'SUCCESS') {
+							let discountAmount = parseFloat(discountResponse.discount);
+							discountMultiplier = (1 - (discountAmount / 100.0));
+						}
+					}
+				}
+
 				// Prepare a list of all purchased services to provide to PayPal.
+				let paypalDisplayTotal = 0;
 				let purchasedItemsList = [];
 				for (let i = 0; i < confirmedToPurchaseItems.length; i++) {
 					let service = confirmedToPurchaseItems[i];
@@ -752,13 +813,15 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 					let purchasedAmount = service.purchasedAmount;
 					let serviceName = serviceInformation.serviceMetadata.name;
 					let serviceDescription = serviceInformation.serviceMetadata.description;
-					let servicePrice = serviceInformation.price;
+					let servicePrice = parseFloat(serviceInformation.price);
+					let servicePricePostDiscount = (servicePrice * 1.00 * discountMultiplier).toFixed(2);
+					paypalDisplayTotal += (purchasedAmount * servicePricePostDiscount);
 					purchasedItemsList.push({
 						name: (purchasedAmount + ' x ' + serviceName),
 						description: serviceDescription.substring(0, 127),
 						unit_amount: {
 							currency_code: 'USD',
-							value: (servicePrice * 1.00)
+							value: servicePricePostDiscount
 						},
 						quantity: purchasedAmount,
 						category: 'DIGITAL_GOODS'
@@ -767,12 +830,15 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 
 				// Add an item to the list for tracking ascension, if present.
 				if (ascensionReadyItems.size > 0) {
+					let ascensionPrice = parseFloat(process.env.ASCENSION_COST);
+					let ascensionPricePostDiscount = (ascensionPrice * 1.00 * discountMultiplier * ascensionReadyItems.size).toFixed(2);
+					paypalDisplayTotal += ascensionPricePostDiscount;
 					purchasedItemsList.push({
 						name: (ascensionReadyItems.size + ' x Ascension'),
 						description: process.env.ASCENSION_DESCRIPTION.substring(0, 127),
 						unit_amount: {
 							currency_code: 'USD',
-							value: (process.env.ASCENSION_COST * 1.00)
+							value: ascensionPricePostDiscount
 						},
 						quantity: ascensionReadyItems.size,
 						category: 'DIGITAL_GOODS'
@@ -793,11 +859,11 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 						description: process.env.PAYPAL_PURCHASE_DESCRIPTION,
 						amount: {
 							currency_code: 'USD',
-							value: (totalCost * 1.00),
+							value: paypalDisplayTotal,
 							breakdown: {
 								item_total: {
 									currency_code: 'USD',
-									value: (totalCost * 1.00)
+									value: paypalDisplayTotal
 								}
 							}
 						},
@@ -825,7 +891,6 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 				paypalRequestBody.gamePurchaseDetails = gamePurchaseDetails;
 
 				// Create an entry in our database for this order.
-				let databaseName = process.env.DATABASE;
 				let sql = util.format(process.env.INSERT_ORDER_DETAILS, databaseName);
 				let values = [ referenceOrderId, userId, totalCost, 'PAYPAL', JSON.stringify(paypalRequestBody) ];
 				await DATABASE_CONNECTION.query(sql, values);
@@ -858,7 +923,6 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 
 				// Create an entry in our database for this order.
 				let referenceOrderId = uuidv1();
-				let databaseName = process.env.DATABASE;
 				let sql = util.format(process.env.INSERT_ORDER_DETAILS, databaseName);
 				let values = [ referenceOrderId, userId, totalCost, 'ETHER', JSON.stringify(gamePurchaseDetails) ];
 				await DATABASE_CONNECTION.query(sql, values);

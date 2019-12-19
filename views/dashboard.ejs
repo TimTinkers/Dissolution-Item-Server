@@ -109,7 +109,7 @@
 
           <!-- A panel for displaying orders in the user's shopping cart. -->
           <div id="checkout-cart-panel" class="collapse panel panel-default">
-            <h2>
+            <h2 id="checkout-cart-title">
               Your Checkout Cart
             </h2>
 
@@ -149,6 +149,7 @@
       window.serverData.screeningUri = '<%= gameMintScreenUri %>';
       window.serverData.ascensionEnabled = ('<%= ascensionEnabled %>' === 'true');
       window.serverData.storeEnabled = ('<%= storeEnabled %>' === 'true');
+      window.serverData.discountTokenEnabled = ('<%= discountTokenEnabled %>' === 'true');
       window.serverData.checkoutEnabled = ('<%= checkoutEnabled %>' === 'true');
       window.serverData.paypalEnabled = ('<%= paypalEnabled %>' === 'true');
       window.serverData.paypalClientId = '<%= paypalClientId %>';

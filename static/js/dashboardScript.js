@@ -31,6 +31,8 @@ function showStatusMessage (statusMessage) {
 };
 
 // Initialize the shopping cart to begin accepting additional services.
+let fetchedDiscount = false;
+let discountMultiplier = 1.00;
 async function initializeCart (shoppingCart) {
 	let cartOffersResponse = await $.post('/sales', { serviceIdFilter: Object.keys(shoppingCart) });
 	if (cartOffersResponse.status === 'SUCCESS') {
@@ -42,6 +44,30 @@ async function initializeCart (shoppingCart) {
 
 		// Otherwise, if there are items in stock, create the cart and display them.
 		} else {
+			if (window.serverData.discountTokenEnabled) {
+				if (!fetchedDiscount) {
+					fetchedDiscount = true;
+					let discountResponse = await $.post('/get-discount', { address: USER_ADDRESS });
+					if (discountResponse.status === 'SUCCESS') {
+						let discount = discountResponse.discount;
+						discountMultiplier = (1 - (discount / 100.0));
+						$('#checkout-cart-title').html(`Your Checkout Cart; eveything is ${discount.toFixed(2)}% off!`);
+
+					// Otherwise, display an error from the server.
+					} else if (discountResponse.status === 'ERROR') {
+						let errorBox = $('#errorBox');
+						errorBox.html(discountResponse.message);
+						errorBox.show();
+
+					// Otherwise, display an error about an unknown status.
+					} else {
+						let errorBox = $('#errorBox');
+						errorBox.html('Received unknown message status from the server.');
+						errorBox.show();
+					}
+				}
+			}
+
 			let cartContent =
 			`<table id="cart" class="table table-hover table-condensed">
 		    <thead>
@@ -58,7 +84,7 @@ async function initializeCart (shoppingCart) {
 		    <tfoot>
 		      <tr id="cart-checkout-row">
 		        <td class="col-sm-3 hidden-xs text-center">
-		          <strong id="checkout-total">Total $1.99</strong>
+		          <strong id="checkout-total">Total $0.00</strong>
 		        </td>
 		      </tr>
 		    </tfoot>
@@ -171,8 +197,8 @@ async function initializeCart (shoppingCart) {
 				let quantity = parseInt($(this).val());
 				let serviceId = $(this).attr('serviceId');
 				let servicePrice = $(this).attr('servicePrice');
-				let subtotal = (quantity * servicePrice);
-				$('#subtotal-' + serviceId).html('$' + subtotal.toFixed(2));
+				let subtotal = (quantity * servicePrice).toFixed(2);
+				$(`#subtotal-${serviceId}`).html(`$${subtotal}`);
 				checkoutItems[serviceId] = quantity;
 
 				// Manipulate the shopping cart cookie to update the quantity of this chosen service.
@@ -231,20 +257,28 @@ async function refreshCart () {
 	if (Object.keys(checkoutItems).length === 0) {
 		$('#checkout-cart-container').html('Your cart is empty.');
 
-	// Update the total cost of the cart if it contains items.
+	// If enabled, check for a discount from the server.
 	} else {
 		let total = 0;
 		$('.checkout-subtotal').map(function () {
-			total += parseFloat(this.innerHTML.substr(1));
+			let serviceCost = parseFloat(this.innerHTML.substr(1));
+			total += serviceCost;
 		});
-		$('#checkout-total').html('Total $' + total.toFixed(2));
+
+		// Display the discount if it's not zero.
+		total = total.toFixed(2);
+		$('#checkout-total').html(`Total $${total}`);
 	}
 };
 
 // Add an item listing to the checkout cart.
 async function addItemToCart (service, amount) {
 	let serviceId = service.serviceId;
-	let servicePrice = service.price.toFixed(2);
+	let servicePrice = service.price;
+	if (discountMultiplier !== 1.00) {
+		servicePrice *= discountMultiplier;
+	}
+	servicePrice = servicePrice.toFixed(2);
 	let serviceName = service.serviceMetadata.name;
 	let serviceImage = service.serviceMetadata.image;
 	let serviceDescription = service.serviceMetadata.description;
