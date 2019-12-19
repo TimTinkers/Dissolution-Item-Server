@@ -31,63 +31,199 @@ function showStatusMessage (statusMessage) {
 };
 
 // Initialize the shopping cart to begin accepting additional services.
-async function initializeCart () {
-	let cartContent =
-	`<table id="cart" class="table table-hover table-condensed">
-    <thead>
-      <tr>
-        <th style="width:50%">Product</th>
-        <th style="width:10%">Price</th>
-        <th style="width:8%">Quantity</th>
-        <th style="width:22%" class="text-center">Subtotal</th>
-        <th style="width:10%"></th>
-      </tr>
-    </thead>
-    <tbody id="cartBodyContents">
-    </tbody>
-    <tfoot>
-      <tr id="cart-checkout-row">
-        <td class="col-sm-3 hidden-xs text-center">
-          <strong id="checkout-total">Total $1.99</strong>
-        </td>
-      </tr>
-    </tfoot>
-  </table>`;
-	$('#checkout-cart-container').html(cartContent);
+async function initializeCart (shoppingCart) {
+	let cartOffersResponse = await $.post('/sales', { serviceIdFilter: Object.keys(shoppingCart) });
+	if (cartOffersResponse.status === 'SUCCESS') {
+		let cartOffers = cartOffersResponse.offers;
 
-	// Prepare the available payment options that are enabled for checkout.
-	let purchaseMethodsContent = '';
-	if (window.serverData.paypalEnabled) {
-		purchaseMethodsContent +=
-		`<!-- Only embed the PayPal checkout script if PayPal is enabled. -->
-		<td class="col-sm-3">
-			<div id="paypal-button-container"></div>
-		</td>`;
-	}
-	if (window.serverData.etherEnabled) {
-		purchaseMethodsContent +=
-		`<td class="col-sm-3">
-			<button id="payWithEther" type="button" class="btn btn-primary">Pay with ETH</button>
-		</td>`;
-	}
+		// If the user has no in-stock items in their shopping cart, we can't display anything.
+		if (cartOffers.length === 0) {
+			$('#checkout-cart-container').html('There are no in-stock items in your cart.');
 
-	// If enabled, embed the PayPal script into the page; we must disable cache-busting to make this possible.
-	if (window.serverData.paypalEnabled) {
-		$.ajaxSetup({
-			cache: true
-		});
-		$.getScript(`https://www.paypal.com/sdk/js?client-id=${window.serverData.paypalClientId}`, function () {
-			preparePayPalButtons();
-		});
-	}
+		// Otherwise, if there are items in stock, create the cart and display them.
+		} else {
+			let cartContent =
+			`<table id="cart" class="table table-hover table-condensed">
+		    <thead>
+		      <tr>
+		        <th style="width:50%">Product</th>
+		        <th style="width:10%">Price</th>
+		        <th style="width:8%">Quantity</th>
+		        <th style="width:22%" class="text-center">Subtotal</th>
+		        <th style="width:10%"></th>
+		      </tr>
+		    </thead>
+		    <tbody id="cartBodyContents">
+		    </tbody>
+		    <tfoot>
+		      <tr id="cart-checkout-row">
+		        <td class="col-sm-3 hidden-xs text-center">
+		          <strong id="checkout-total">Total $1.99</strong>
+		        </td>
+		      </tr>
+		    </tfoot>
+		  </table>`;
+			$('#checkout-cart-container').html(cartContent);
 
-	// If enabled, show the checkout cart's Ether payment button.
-	if (window.serverData.etherEnabled) {
-		prepareEtherButton();
-	}
+			// Prepare the available payment options that are enabled for checkout.
+			let purchaseMethodsContent = '';
+			if (window.serverData.paypalEnabled) {
+				purchaseMethodsContent +=
+				`<!-- Only embed the PayPal checkout script if PayPal is enabled. -->
+				<td class="col-sm-3">
+					<div id="paypal-button-container"></div>
+				</td>`;
+			}
+			if (window.serverData.etherEnabled) {
+				purchaseMethodsContent +=
+				`<td class="col-sm-3">
+					<button id="payWithEther" type="button" class="btn btn-primary">Pay with ETH</button>
+				</td>`;
+			}
 
-	// Add the payment checkout options.
-	$('#cart-checkout-row').append(purchaseMethodsContent);
+			// If enabled, embed the PayPal script into the page; we must disable cache-busting to make this possible.
+			if (window.serverData.paypalEnabled) {
+				$.ajaxSetup({
+					cache: true
+				});
+				$.getScript(`https://www.paypal.com/sdk/js?client-id=${window.serverData.paypalClientId}`, function () {
+					preparePayPalButtons();
+				});
+			}
+
+			// If enabled, show the checkout cart's Ether payment button.
+			if (window.serverData.etherEnabled) {
+				prepareEtherButton();
+			}
+
+			// Add the payment checkout options.
+			$('#cart-checkout-row').append(purchaseMethodsContent);
+
+			for (let i = 0; i < cartOffers.length; i++) {
+				let service = cartOffers[i];
+				let serviceId = service.serviceId;
+				let amount = shoppingCart[serviceId];
+				checkoutItems[serviceId] = amount;
+
+				// Add the service details to the checkout cart.
+				let serviceName = service.serviceMetadata.name;
+				let serviceDescription = service.serviceMetadata.description;
+				await addItemToCart(service, amount);
+
+				// Create a modal detailing this service which can be opened later.
+				let modalContent =
+				`<div class="modal fade" id="bundle-modal-${serviceId}" tabindex="-1" role="dialog" aria-labelledby="exampleModalCenterTitle" aria-hidden="true">
+					<div class="modal-dialog modal-dialog-centered" role="document">
+						<div class="modal-content">
+							<div class="modal-header">
+								<h5 class="modal-title">${serviceName}</h5>
+								<button type="button" class="close" data-dismiss="modal" aria-label="Close">
+									<span aria-hidden="true">&times;</span>
+								</button>
+							</div>
+							<div id="bundle-modal-body-${serviceId}" class="modal-body">
+							</div>
+						</div>
+					</div>
+				</div>`;
+				$('#bundle-modal-container').append(modalContent);
+
+				// Fill out the details for what exactly is contained within this service.
+				let bundleContentsBody =
+				`<p>${serviceDescription}</p>`;
+				let serviceContents = service.contents;
+				for (let j = 0; j < serviceContents.length; j++) {
+					let item = serviceContents[j];
+					let itemId = item.itemId;
+					let itemAmount = item.amount;
+					let itemStock = item.availableForPurchase;
+					let itemName = item.metadata.name;
+					let itemImage = item.metadata.image;
+					let itemDescription = item.metadata.description;
+					let itemEntry =
+					`<div class="row">
+						<div class="col-sm-3 hidden-xs">
+							<img src="${itemImage}" alt="${itemName}" class="img-responsive" height="100" width="100"/>
+						</div>
+						<div class="col-sm-9">
+							<h4 class="nomargin">${itemAmount} x ${itemName} (${itemId})</h4>
+							<p>${itemDescription}</p>
+							<p>There are ${itemStock} of this item left in stock.</p>
+						</div>
+					</div>`;
+					// TODO: make the text there match ordinals for the amount left in stock.
+					bundleContentsBody += itemEntry;
+				}
+				$(`#bundle-modal-body-${serviceId}`).html(bundleContentsBody);
+			}
+
+			// Assign delegate to open a modal when clicking on a bundle.
+			$('#cartBodyContents').on('click', '.checkout-service-row', async function (changedEvent) {
+				if (!$(changedEvent.target).hasClass('checkout-quantity-selector') && !$(changedEvent.target).hasClass('checkout-deletion')) {
+					let serviceId = $(this).attr('serviceId');
+					$(`#bundle-modal-${serviceId}`).modal();
+				}
+			});
+
+			// Assigning delegate to checkout cart quantity selection event handler.
+			$('#cartBodyContents').on('input', '.checkout-quantity-selector', async function (changedEvent) {
+				changedEvent.stopPropagation();
+				let quantity = parseInt($(this).val());
+				let serviceId = $(this).attr('serviceId');
+				let servicePrice = $(this).attr('servicePrice');
+				let subtotal = (quantity * servicePrice);
+				$('#subtotal-' + serviceId).html('$' + subtotal.toFixed(2));
+				checkoutItems[serviceId] = quantity;
+
+				// Manipulate the shopping cart cookie to update the quantity of this chosen service.
+				let shoppingCookie = Cookies.get('shoppingCart');
+				if (shoppingCookie) {
+					let shoppingCart = JSON.parse(shoppingCookie);
+					if (shoppingCart) {
+						shoppingCart[serviceId] = quantity;
+						Cookies.set('shoppingCart', JSON.stringify(shoppingCart));
+					}
+				}
+				await refreshCart();
+			});
+
+			// Assigning delegate to checkout cart deletion event handler.
+			$('#cartBodyContents').on('click', '.checkout-deletion', async function (changedEvent) {
+				changedEvent.stopPropagation();
+				let serviceId = $(this).attr('serviceId');
+				$('#shopping-row-' + serviceId).remove();
+				$(`#bundle-modal-${serviceId}`).remove();
+				delete checkoutItems[serviceId];
+
+				// Manipulate the shopping cart cookie to remove this chosen service.
+				let shoppingCookie = Cookies.get('shoppingCart');
+				if (shoppingCookie) {
+					let shoppingCart = JSON.parse(shoppingCookie);
+					if (shoppingCart) {
+						delete shoppingCart[serviceId];
+						if (Object.keys(shoppingCart).length === 0) {
+							Cookies.remove('shoppingCart');
+						} else {
+							Cookies.set('shoppingCart', JSON.stringify(shoppingCart));
+						}
+					}
+				}
+				await refreshCart();
+			});
+		}
+
+	// If there was an error retrieving items for sale, notify the user.
+	} else if (cartOffersResponse.status === 'ERROR') {
+		let errorBox = $('#errorBox');
+		errorBox.html(cartOffersResponse.message);
+		errorBox.show();
+
+	// Otherwise, display an error about an unknown status.
+	} else {
+		let errorBox = $('#errorBox');
+		errorBox.html('Received unknown message status from the server.');
+		errorBox.show();
+	}
 };
 
 // Refresh the checkout cart's total cost and visibility.
@@ -139,137 +275,6 @@ async function addItemToCart (service, amount) {
 	</tr>`;
 	cartBody.append(itemElement);
 	await refreshCart();
-};
-
-// Populate the checkout cart from the user's shopping cart cookie.
-async function populateCheckoutCart (shoppingCart) {
-	let cartOffersResponse = await $.post('/sales', { serviceIdFilter: Object.keys(shoppingCart) });
-	if (cartOffersResponse.status === 'SUCCESS') {
-		let cartOffers = cartOffersResponse.offers;
-		for (let i = 0; i < cartOffers.length; i++) {
-			let service = cartOffers[i];
-			let serviceId = service.serviceId;
-			let amount = shoppingCart[serviceId];
-			checkoutItems[serviceId] = amount;
-
-			// Add the service details to the checkout cart.
-			let serviceName = service.serviceMetadata.name;
-			let serviceDescription = service.serviceMetadata.description;
-			await addItemToCart(service, amount);
-
-			// Create a modal detailing this service which can be opened later.
-			let modalContent =
-			`<div class="modal fade" id="bundle-modal-${serviceId}" tabindex="-1" role="dialog" aria-labelledby="exampleModalCenterTitle" aria-hidden="true">
-				<div class="modal-dialog modal-dialog-centered" role="document">
-					<div class="modal-content">
-						<div class="modal-header">
-							<h5 class="modal-title">${serviceName}</h5>
-							<button type="button" class="close" data-dismiss="modal" aria-label="Close">
-								<span aria-hidden="true">&times;</span>
-							</button>
-						</div>
-						<div id="bundle-modal-body-${serviceId}" class="modal-body">
-						</div>
-					</div>
-				</div>
-			</div>`;
-			$('#bundle-modal-container').append(modalContent);
-
-			// Fill out the details for what exactly is contained within this service.
-			let bundleContentsBody =
-			`<p>${serviceDescription}</p>`;
-			let serviceContents = service.contents;
-			for (let j = 0; j < serviceContents.length; j++) {
-				let item = serviceContents[j];
-				let itemId = item.itemId;
-				let itemAmount = item.amount;
-				let itemStock = item.availableForPurchase;
-				let itemName = item.metadata.name;
-				let itemImage = item.metadata.image;
-				let itemDescription = item.metadata.description;
-				let itemEntry =
-				`<div class="row">
-					<div class="col-sm-3 hidden-xs">
-						<img src="${itemImage}" alt="${itemName}" class="img-responsive" height="100" width="100"/>
-					</div>
-					<div class="col-sm-9">
-						<h4 class="nomargin">${itemAmount} x ${itemName} (${itemId})</h4>
-						<p>${itemDescription}</p>
-						<p>There are ${itemStock} of this item left in stock.</p>
-					</div>
-				</div>`;
-				// TODO: make the text there match ordinals for the amount left in stock.
-				bundleContentsBody += itemEntry;
-			}
-			$(`#bundle-modal-body-${serviceId}`).html(bundleContentsBody);
-		}
-
-		// Assign delegate to open a modal when clicking on a bundle.
-		$('#cartBodyContents').on('click', '.checkout-service-row', async function (changedEvent) {
-			if (!$(changedEvent.target).hasClass('checkout-quantity-selector') && !$(changedEvent.target).hasClass('checkout-deletion')) {
-				let serviceId = $(this).attr('serviceId');
-				$(`#bundle-modal-${serviceId}`).modal();
-			}
-		});
-
-		// Assigning delegate to checkout cart quantity selection event handler.
-		$('#cartBodyContents').on('input', '.checkout-quantity-selector', async function (changedEvent) {
-			changedEvent.stopPropagation();
-			let quantity = parseInt($(this).val());
-			let serviceId = $(this).attr('serviceId');
-			let servicePrice = $(this).attr('servicePrice');
-			let subtotal = (quantity * servicePrice);
-			$('#subtotal-' + serviceId).html('$' + subtotal.toFixed(2));
-			checkoutItems[serviceId] = quantity;
-
-			// Manipulate the shopping cart cookie to update the quantity of this chosen service.
-			let shoppingCookie = Cookies.get('shoppingCart');
-			if (shoppingCookie) {
-				let shoppingCart = JSON.parse(shoppingCookie);
-				if (shoppingCart) {
-					shoppingCart[serviceId] = quantity;
-					Cookies.set('shoppingCart', JSON.stringify(shoppingCart));
-				}
-			}
-			await refreshCart();
-		});
-
-		// Assigning delegate to checkout cart deletion event handler.
-		$('#cartBodyContents').on('click', '.checkout-deletion', async function (changedEvent) {
-			changedEvent.stopPropagation();
-			let serviceId = $(this).attr('serviceId');
-			$('#shopping-row-' + serviceId).remove();
-			$(`#bundle-modal-${serviceId}`).remove();
-			delete checkoutItems[serviceId];
-
-			// Manipulate the shopping cart cookie to remove this chosen service.
-			let shoppingCookie = Cookies.get('shoppingCart');
-			if (shoppingCookie) {
-				let shoppingCart = JSON.parse(shoppingCookie);
-				if (shoppingCart) {
-					delete shoppingCart[serviceId];
-					if (Object.keys(shoppingCart).length === 0) {
-						Cookies.remove('shoppingCart');
-					} else {
-						Cookies.set('shoppingCart', JSON.stringify(shoppingCart));
-					}
-				}
-			}
-			await refreshCart();
-		});
-
-	// If there was an error retrieving items for sale, notify the user.
-	} else if (cartOffersResponse.status === 'ERROR') {
-		let errorBox = $('#errorBox');
-		errorBox.html(cartOffersResponse.message);
-		errorBox.show();
-
-	// Otherwise, display an error about an unknown status.
-	} else {
-		let errorBox = $('#errorBox');
-		errorBox.html('Received unknown message status from the server.');
-		errorBox.show();
-	}
 };
 
 // Refresh the recent user's inventory.
@@ -459,8 +464,7 @@ async function refreshInventory () {
 
 					// Initialize the cart with items from the cookie.
 					} else {
-						await initializeCart();
-						populateCheckoutCart(shoppingCart);
+						await initializeCart(shoppingCart);
 					}
 				}
 
