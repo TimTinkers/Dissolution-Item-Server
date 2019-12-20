@@ -654,6 +654,22 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 				availableServicesMap.set(availableService.serviceId, availableService);
 			}
 
+			// Apply a discount to the total cost based on the user's discount tokens.
+			let discountMultiplier = 1.00;
+			if (process.env.DISCOUNT_TOKEN_ENABLED === 'true') {
+				let sql = util.format(process.env.GET_LAST_ADDRESS, databaseName);
+				let values = [ userId ];
+				let rows = await DATABASE_CONNECTION.query(sql, values);
+				let userAddress = rows[0].lastAddress;
+				if (userAddress !== '0x0000000000000000000000000000000000000000') {
+					let discountResponse = await getDiscount(userAddress);
+					if (discountResponse.status === 'SUCCESS') {
+						let discountAmount = parseFloat(discountResponse.discount);
+						discountMultiplier = (1 - (discountAmount / 100.0));
+					}
+				}
+			}
+
 			// Calculate the cost for the services that a user is requesting to buy.
 			let totalCost = 0;
 			let ascensionReadyItems = new Map();
@@ -728,7 +744,7 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 							}
 
 							// All hurdles have been passed for this ascension attempt.
-							totalCost += (itemCount * process.env.ASCENSION_COST);
+							totalCost += (itemCount * process.env.ASCENSION_COST * discountMultiplier);
 							ascensionReadyItems = itemsToMint;
 
 						// Return an error regarding an empty set of checkout items.
@@ -764,7 +780,7 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 
 					// Add this validated service purchase to the total order.
 					let servicePrice = serviceInformation.price;
-					totalCost += (servicePrice * requestedAmount);
+					totalCost += (servicePrice * requestedAmount * discountMultiplier);
 					confirmedToPurchaseItems.push({
 						serviceInformation: serviceInformation,
 						purchasedAmount: requestedAmount
@@ -786,22 +802,6 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 				if (process.env.PAYPAL_ENABLED === 'false') {
 					res.send({ status: 'ERROR', message: process.env.PAYPAL_DISABLED_ERROR });
 					return;
-				}
-
-				// Apply a discount to the total cost based on the user's discount tokens.
-				let discountMultiplier = 1.00;
-				if (process.env.DISCOUNT_TOKEN_ENABLED === 'true') {
-					let sql = util.format(process.env.GET_LAST_ADDRESS, databaseName);
-					let values = [ userId ];
-					let rows = await DATABASE_CONNECTION.query(sql, values);
-					let userAddress = rows[0].lastAddress;
-					if (userAddress !== '0x0000000000000000000000000000000000000000') {
-						let discountResponse = await getDiscount(userAddress);
-						if (discountResponse.status === 'SUCCESS') {
-							let discountAmount = parseFloat(discountResponse.discount);
-							discountMultiplier = (1 - (discountAmount / 100.0));
-						}
-					}
 				}
 
 				// Prepare a list of all purchased services to provide to PayPal.
@@ -846,6 +846,7 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 				}
 
 				// Charge the user for the items; call PayPal to set up a transaction.
+				paypalDisplayTotal = paypalDisplayTotal.toFixed(2);
 				let referenceOrderId = uuidv1();
 				const request = new paypal.orders.OrdersCreateRequest();
 				request.prefer('return=representation');
@@ -892,7 +893,7 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 
 				// Create an entry in our database for this order.
 				let sql = util.format(process.env.INSERT_ORDER_DETAILS, databaseName);
-				let values = [ referenceOrderId, userId, totalCost, 'PAYPAL', JSON.stringify(paypalRequestBody) ];
+				let values = [ referenceOrderId, userId, paypalDisplayTotal, 'PAYPAL', JSON.stringify(paypalRequestBody) ];
 				await DATABASE_CONNECTION.query(sql, values);
 
 				// Create an entry to flag this order as pending.
@@ -993,6 +994,7 @@ app.post('/approve', asyncMiddleware(async (req, res, next) => {
 		let transactionStatus = capture.result['purchase_units'][0].payments.captures[0].status;
 		let transactionCurrency = capture.result['purchase_units'][0].payments.captures[0].amount['currency_code'];
 		let transactionValue = capture.result['purchase_units'][0].payments.captures[0].amount.value;
+		console.log(orderId, transactionStatus, transactionCurrency, transactionValue, cost);
 		if (transactionStatus === 'COMPLETED' && transactionCurrency === 'USD' && parseFloat(transactionValue) >= cost) {
 			let gamePurchaseDetails = orderDetails.gamePurchaseDetails;
 			let purchasedItems = gamePurchaseDetails.purchasedItems;

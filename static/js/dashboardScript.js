@@ -594,6 +594,9 @@ async function preparePayPalButtons () {
 			let status = await $.post('/approve', data);
 			if (status === 'OK') {
 				console.log('Transaction completed successfully.');
+				Cookies.remove('shoppingCart');
+				checkoutItems = {};
+				await refreshCart();
 				showStatusMessage('Your purchase was received and is now pending!');
 			} else {
 				console.error(status, 'Transaction failed.');
