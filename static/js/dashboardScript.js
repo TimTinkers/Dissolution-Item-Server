@@ -51,7 +51,7 @@ async function initializeCart (shoppingCart) {
 					if (discountResponse.status === 'SUCCESS') {
 						let discount = discountResponse.discount;
 						discountMultiplier = (1 - (discount / 100.0));
-						$('#checkout-cart-title').html(`Your Checkout Cart; eveything is ${discount.toFixed(2)}% off!`);
+						$('#checkout-cart-title').html(`Your Checkout Cart; everything is ${discount.toFixed(2)}% off!`);
 
 					// Otherwise, display an error from the server.
 					} else if (discountResponse.status === 'ERROR') {
