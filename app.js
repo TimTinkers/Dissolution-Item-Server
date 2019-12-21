@@ -637,6 +637,22 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 			}
 			console.log(userId, requestedServices);
 
+			// Apply a discount to the total cost based on the user's discount tokens.
+			let discountMultiplier = 1.00;
+			if (process.env.DISCOUNT_TOKEN_ENABLED === 'true') {
+				let sql = util.format(process.env.GET_LAST_ADDRESS, databaseName);
+				let values = [ userId ];
+				let rows = await DATABASE_CONNECTION.query(sql, values);
+				let userAddress = rows[0].lastAddress;
+				if (userAddress !== '0x0000000000000000000000000000000000000000') {
+					let discountResponse = await getDiscount(userAddress);
+					if (discountResponse.status === 'SUCCESS') {
+						let discountAmount = parseFloat(discountResponse.discount);
+						discountMultiplier = (1 - (discountAmount / 100.0));
+					}
+				}
+			}
+
 			// Retrieve the services that are available for sale.
 			let serviceIdFilter = [];
 			for (let i = 0; i < requestedServices.length; i++) {
@@ -652,22 +668,6 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 			for (let i = 0; i < availableServicesArray.length; i++) {
 				let availableService = availableServicesArray[i];
 				availableServicesMap.set(availableService.serviceId, availableService);
-			}
-
-			// Apply a discount to the total cost based on the user's discount tokens.
-			let discountMultiplier = 1.00;
-			if (process.env.DISCOUNT_TOKEN_ENABLED === 'true') {
-				let sql = util.format(process.env.GET_LAST_ADDRESS, databaseName);
-				let values = [ userId ];
-				let rows = await DATABASE_CONNECTION.query(sql, values);
-				let userAddress = rows[0].lastAddress;
-				if (userAddress !== '0x0000000000000000000000000000000000000000') {
-					let discountResponse = await getDiscount(userAddress);
-					if (discountResponse.status === 'SUCCESS') {
-						let discountAmount = parseFloat(discountResponse.discount);
-						discountMultiplier = (1 - (discountAmount / 100.0));
-					}
-				}
 			}
 
 			// Calculate the cost for the services that a user is requesting to buy.
@@ -933,11 +933,24 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 				values = [ referenceOrderId, 0, JSON.stringify(gamePurchaseDetails) ];
 				await DATABASE_CONNECTION.query(sql, values);
 
-				// TODO: actually create and sign multiple services; for now only ascension is operable.
-				// TODO: track a mapping of store service to payment process services.
-				// Return a series of transactions for all requested purchases.
+				// Retrieve the current cost in USD of Ether.
+				let costOfEtherResponse = await requestPromise({
+					method: 'GET',
+					uri: process.env.CRYPTOCOMPARE_DATA_URI,
+					headers: {
+						'Accept': 'application/json',
+						'Content-Type': 'application/json',
+						'authorization': 'Apikey ' + process.env.CRYPTOCOMPARE_API_KEY
+					}
+				});
+				costOfEtherResponse = JSON.parse(costOfEtherResponse);
+				let costOfEther = costOfEtherResponse.USD;
+				let costInEther = (totalCost / costOfEther).toString();
+				let costInWei = (costInEther * 1000000000000000000);
+				costInWei = parseInt(costInWei);
+
+				// Create a transaction for the user to pay for the order.
 				let purchaseData = Object.values({
-					serviceId: 0,
 					orderId: referenceOrderId
 				});
 				let transactionData = PAYMENT_PROCESSOR.interface.functions['purchase'].encode(purchaseData);
@@ -946,7 +959,7 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 					gasLimit: 3000000,
 					to: process.env.PAYMENT_PROCESSOR_ADDRESS,
 					data: transactionData,
-					value: (5500000000000000 * ascensionReadyItems.size)
+					value: costInWei
 				});
 
 			// If the user has chosen an unknown payment option, notify them.
