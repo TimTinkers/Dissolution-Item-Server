@@ -179,6 +179,16 @@ async function initializeCart (shoppingCart) {
 					</div>`;
 					// TODO: make the text there match ordinals for the amount left in stock.
 					bundleContentsBody += itemEntry;
+
+					// If we choose to show out of stock services, flag them as such.
+					if (!window.serverData.hideOutOfStockItems && itemStock <= 0) {
+						$(`#quantityInput-${serviceId}`).attr('value', 0);
+						$(`#quantityInput-${serviceId}`).attr('servicePrice', 0);
+						$(`#service-price-display-${serviceId}`).html(`$${0}`);
+						$(`#subtotal-${serviceId}`).html(`$${0}`);
+						$(`#service-description-${serviceId}`).html(`Unfortunately, this service is out of stock.`);
+						await refreshCart();
+					}
 				}
 				$(`#bundle-modal-body-${serviceId}`).html(bundleContentsBody);
 			}
@@ -292,11 +302,11 @@ async function addItemToCart (service, amount) {
 				</div>
 				<div class="col-sm-9">
 					<h4 class="nomargin">${serviceName}</h4>
-					<p>${serviceDescription}</p>
+					<p id="service-description-${serviceId}">${serviceDescription}</p>
 				</div>
 			</div>
 		</td>
-		<td data-th="Price">$${servicePrice}</td>
+		<td data-th="Price" id="service-price-display-${serviceId}">$${servicePrice}</td>
 		<td data-th="Quantity">
 			<input id="quantityInput-${serviceId}" serviceId="${serviceId}" servicePrice="${servicePrice}" type="number" class="form-control text-center checkout-quantity-selector" value="${amount}" min="0">
 		</td>

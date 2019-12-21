@@ -256,6 +256,9 @@ async function getServicesForSale (serviceIdFilter) {
 		// Fetch active sale offers from the database.
 		let offers = [];
 		let sql = util.format(process.env.GET_ALL_ITEMS_FOR_SALE, databaseName, databaseName, databaseName, databaseName, databaseName);
+		if (process.env.HIDE_OUT_OF_STOCK_ITEMS === 'false') {
+			sql = util.format(process.env.GET_ALL_ITEMS_FOR_SALE_INCLUDING_OUT_OF_STOCK, databaseName, databaseName, databaseName, databaseName, databaseName);
+		}
 		let storeItems = await DATABASE_CONNECTION.query(sql);
 		for (let i = 0; i < storeItems.length; i++) {
 			let storeItem = storeItems[i];
@@ -354,6 +357,7 @@ app.get('/', asyncMiddleware(async (req, res, next) => {
 			paypalClientId: process.env.PAYPAL_CLIENT_ID,
 			ascensionEnabled: process.env.ASCENSION_ENABLED,
 			storeEnabled: process.env.STORE_ENABLED,
+			hideOutOfStockItems: process.env.HIDE_OUT_OF_STOCK_ITEMS,
 			discountTokenEnabled: process.env.DISCOUNT_TOKEN_ENABLED,
 			checkoutEnabled: process.env.CHECKOUT_ENABLED,
 			paypalEnabled: process.env.PAYPAL_ENABLED,
