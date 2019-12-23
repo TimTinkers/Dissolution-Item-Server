@@ -255,7 +255,9 @@ async function getServicesForSale (serviceIdFilter) {
 
 		// Fetch active sale offers from the database.
 		let offers = [];
-		let sql = util.format(process.env.GET_ALL_ITEMS_FOR_SALE, databaseName, databaseName, databaseName, databaseName, databaseName);
+		let sql = util.format(process.env.INCREASE_GROUP_CONCAT_LIMIT);
+		await DATABASE_CONNECTION.query(sql);
+		sql = util.format(process.env.GET_ALL_ITEMS_FOR_SALE, databaseName, databaseName, databaseName, databaseName, databaseName);
 		if (process.env.HIDE_OUT_OF_STOCK_ITEMS === 'false') {
 			sql = util.format(process.env.GET_ALL_ITEMS_FOR_SALE_INCLUDING_OUT_OF_STOCK, databaseName, databaseName, databaseName, databaseName, databaseName);
 		}
@@ -274,7 +276,12 @@ async function getServicesForSale (serviceIdFilter) {
 				let item = {};
 				item.itemId = bundleItems[i];
 				item.amount = parseInt(bundleAmounts[i]);
-				item.metadata = JSON.parse(bundleMetadataRaw[i]);
+				try {
+					item.metadata = JSON.parse(bundleMetadataRaw[i]);
+				} catch (error) {
+					console.error(process.env.INVALID_METADATA_ERROR, bundleItems[i]);
+					item.metadata = JSON.parse(process.env.INVALID_METADATA_PLACEHOLDER);
+				}
 				item.availableForPurchase = parseInt(bundleSupplies[i]);
 				contents.push(item);
 			}
@@ -355,6 +362,8 @@ app.get('/', asyncMiddleware(async (req, res, next) => {
 			gameProfileUri: process.env.GAME_PROFILE_URI,
 			gameMintScreenUri: process.env.GAME_MINT_SCREEN_URI,
 			paypalClientId: process.env.PAYPAL_CLIENT_ID,
+			profileEnabled: process.env.PROFILE_ENABLED,
+			inventoryEnabled: process.env.INVENTORY_ENABLED,
 			ascensionEnabled: process.env.ASCENSION_ENABLED,
 			storeEnabled: process.env.STORE_ENABLED,
 			hideOutOfStockItems: process.env.HIDE_OUT_OF_STOCK_ITEMS,

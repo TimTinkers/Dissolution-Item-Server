@@ -36,7 +36,7 @@
           </div>
 
           <!-- A panel for displaying the user's profile information. -->
-          <div class="panel panel-default">
+          <div id="profile-pabel" class="collapse panel panel-default">
             <h2>
               Your Profile
             </h2>
@@ -55,7 +55,7 @@
           </div>
 
           <!-- A panel for displaying game assets. -->
-          <div class="panel panel-default">
+          <div id="inventory-panel" class="collapse panel panel-default">
             <h2>
               Your Assets
             </h2>
@@ -147,6 +147,8 @@
       window.serverData.metadataUri = '<%= gameMetadataUri %>';
       window.serverData.profileUri = '<%= gameProfileUri %>';
       window.serverData.screeningUri = '<%= gameMintScreenUri %>';
+      window.serverData.profileEnabled = ('<%= profileEnabled %>' === 'true');
+      window.serverData.inventoryEnabled = ('<%= inventoryEnabled %>' === 'true');
       window.serverData.ascensionEnabled = ('<%= ascensionEnabled %>' === 'true');
       window.serverData.storeEnabled = ('<%= storeEnabled %>' === 'true');
       window.serverData.hideOutOfStockItems = ('<%= hideOutOfStockItems %>' === 'true');

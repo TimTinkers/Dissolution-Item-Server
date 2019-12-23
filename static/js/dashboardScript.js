@@ -434,42 +434,48 @@ async function refreshInventory () {
 		showError('Unable to retrieve the server inventory.');
 		$('#ownedListGame').html('Unable to retrieve the server inventory.');
 	}
+};
 
-	// Update the list of this user's Enjin-owned items if they have a valid address.
+// Refresh a user's connection to Enjin in order to update the list of this user's Enjin-owned items if they have a valid address.
+async function refreshEnjinConnection () {
 	let connectionData = await $.post('/connect');
 	if (connectionData.status === 'LINKED') {
 		USER_ADDRESS = connectionData.address;
-		let inventory = connectionData.inventory;
-		$('#enjinMessage').html('Your Ethereum address is ' + USER_ADDRESS);
-		if (inventory.length > 0) {
-			$('#ownedTitleEnjin').html('You own the following Enjin ERC-1155 items:');
-		}
-		$('#linkingQR').empty();
-		$('#mintButton').show();
-		let updatedListEnjin = $('<ul id="ownedListEnjin" style="list-style-type:circle"></ul>');
-		for (let i = 0; i < inventory.length; i++) {
-			let item = inventory[i];
-			let itemAmount = item.balance;
-			let itemId = item['token_id'];
-			let itemURI = item.itemURI;
 
-			// Try to retrieve metadata about each item.
-			try {
-				let itemMetadataResponse = await $.get(itemURI);
-				let itemName = itemMetadataResponse.name;
-				let itemImage = itemMetadataResponse.image;
-				let itemDescription = itemMetadataResponse.description;
-
-				// Update the actual list for display.
-				updatedListEnjin.append('<li>' + itemAmount + ' x (' + itemId + ') ' + itemName + ': ' + itemDescription + '</li>');
-
-			// If unable to retrieve an item's metadata, flag such an item.
-			} catch (error) {
-				updatedListEnjin.append('<li>' + itemAmount + ' x (' + itemId + ') - unable to retrieve metadata.</li>');
+		// If the inventory is enabled, display it to the user.
+		if (window.serverData.inventoryEnabled) {
+			let inventory = connectionData.inventory;
+			$('#enjinMessage').html('Your Ethereum address is ' + USER_ADDRESS);
+			if (inventory.length > 0) {
+				$('#ownedTitleEnjin').html('You own the following Enjin ERC-1155 items:');
 			}
+			$('#linkingQR').empty();
+			$('#mintButton').show();
+			let updatedListEnjin = $('<ul id="ownedListEnjin" style="list-style-type:circle"></ul>');
+			for (let i = 0; i < inventory.length; i++) {
+				let item = inventory[i];
+				let itemAmount = item.balance;
+				let itemId = item['token_id'];
+				let itemURI = item.itemURI;
+
+				// Try to retrieve metadata about each item.
+				try {
+					let itemMetadataResponse = await $.get(itemURI);
+					let itemName = itemMetadataResponse.name;
+					let itemImage = itemMetadataResponse.image;
+					let itemDescription = itemMetadataResponse.description;
+
+					// Update the actual list for display.
+					updatedListEnjin.append('<li>' + itemAmount + ' x (' + itemId + ') ' + itemName + ': ' + itemDescription + '</li>');
+
+				// If unable to retrieve an item's metadata, flag such an item.
+				} catch (error) {
+					updatedListEnjin.append('<li>' + itemAmount + ' x (' + itemId + ') - unable to retrieve metadata.</li>');
+				}
+			}
+			$('#ownedListEnjin').html(updatedListEnjin.html());
+			$('#enjinSpinner').remove();
 		}
-		$('#ownedListEnjin').html(updatedListEnjin.html());
-		$('#enjinSpinner').remove();
 
 		// Perform the first-time setup of UI modules once linked to Enjin.
 		if (!linkedToEnjin) {
@@ -499,7 +505,6 @@ async function refreshInventory () {
 
 			// If the checkout cart is enabled, process its cookie and display items.
 			if (window.serverData.checkoutEnabled) {
-				$('#checkout-cart-panel').show();
 				let shoppingCookie = Cookies.get('shoppingCart');
 				if (shoppingCookie) {
 					let shoppingCart = JSON.parse(shoppingCookie);
@@ -541,46 +546,46 @@ async function refreshInventory () {
 		errorBox.html('Received unknown message status from the server.');
 		errorBox.show();
 	}
+};
 
-	// Update the items that are for sale in the store if the store is enabled.
-	if (window.serverData.storeEnabled) {
-		let storeData = await $.post('/sales');
-		if (storeData.status === 'SUCCESS') {
-			let updatedStoreList = $('<ul id="itemsOnSale" style="list-style-type:circle"></ul>');
-			let storeItems = storeData.offers;
-			if (storeItems.length > 0) {
-				$('#itemsInStock').html('The following items are on sale:');
-			}
-			for (let i = 0; i < storeItems.length; i++) {
-				let item = storeItems[i];
-				let serviceId = item.serviceId;
-				let availableForSale = item.availableForSale;
-				let itemId = item.itemId;
-				let itemName = item.name;
-				let itemDescription = item.description;
-				let itemAmount = item.amount;
-				let itemCost = item.cost;
-
-				// Update the actual list for display.
-				updatedStoreList.append('<li>' + itemAmount + ' x (' + itemId + ') ' + itemName + ': ' + itemDescription + ' for $' + itemCost + '\t\t<input id="amount-' + serviceId + '" class="input" serviceId="' + serviceId + '" type="number" value="0" min="0" max="' + availableForSale + '" step="1" style="float: right"/></li>');
-			}
-
-			// Update our store and remove the loading indicator.
-			$('#itemsOnSale').html(updatedStoreList.html());
-			$('#itemSaleSpinner').remove();
-
-		// Otherwise, display an error from the server.
-		} else if (storeData.status === 'ERROR') {
-			let errorBox = $('#errorBox');
-			errorBox.html(storeData.message);
-			errorBox.show();
-
-		// Otherwise, display an error about an unknown status.
-		} else {
-			let errorBox = $('#errorBox');
-			errorBox.html('Received unknown message status from the server.');
-			errorBox.show();
+// Update the items that are for sale in the store if the store is enabled.
+async function refreshStoreContent () {
+	let storeData = await $.post('/sales');
+	if (storeData.status === 'SUCCESS') {
+		let updatedStoreList = $('<ul id="itemsOnSale" style="list-style-type:circle"></ul>');
+		let storeItems = storeData.offers;
+		if (storeItems.length > 0) {
+			$('#itemsInStock').html('The following items are on sale:');
 		}
+		for (let i = 0; i < storeItems.length; i++) {
+			let item = storeItems[i];
+			let serviceId = item.serviceId;
+			let availableForSale = item.availableForSale;
+			let itemId = item.itemId;
+			let itemName = item.name;
+			let itemDescription = item.description;
+			let itemAmount = item.amount;
+			let itemCost = item.cost;
+
+			// Update the actual list for display.
+			updatedStoreList.append('<li>' + itemAmount + ' x (' + itemId + ') ' + itemName + ': ' + itemDescription + ' for $' + itemCost + '\t\t<input id="amount-' + serviceId + '" class="input" serviceId="' + serviceId + '" type="number" value="0" min="0" max="' + availableForSale + '" step="1" style="float: right"/></li>');
+		}
+
+		// Update our store and remove the loading indicator.
+		$('#itemsOnSale').html(updatedStoreList.html());
+		$('#itemSaleSpinner').remove();
+
+	// Otherwise, display an error from the server.
+	} else if (storeData.status === 'ERROR') {
+		let errorBox = $('#errorBox');
+		errorBox.html(storeData.message);
+		errorBox.show();
+
+	// Otherwise, display an error about an unknown status.
+	} else {
+		let errorBox = $('#errorBox');
+		errorBox.html('Received unknown message status from the server.');
+		errorBox.show();
 	}
 };
 
@@ -675,10 +680,25 @@ function buildRequestList () {
 
 // A function which asynchronously sets up the page.
 let setup = async function () {
-	console.log(`Setting up page. Ascension: ${window.serverData.ascensionEnabled}; Store: ${window.serverData.storeEnabled}; Checkout: ${window.serverData.checkoutEnabled}.`);
+	console.log(`Setting up page. Profile: ${window.serverData.profileEnabled}; Inventory: ${window.serverData.inventoryEnabled}; Ascension: ${window.serverData.ascensionEnabled}; Store: ${window.serverData.storeEnabled}; Checkout: ${window.serverData.checkoutEnabled}.`);
 
 	// Get the user's access token and identity.
 	GAME_TOKEN = Cookies.get('gameToken');
+
+	// Display the panel for loading profile data if enabled.
+	if (window.serverData.profileEnabled) {
+		$('#profile-panel').show();
+	}
+
+	// Display the panel for loading inventory data if enabled.
+	if (window.serverData.inventoryEnabled) {
+		$('#inventory-panel').show();
+	}
+
+	// Display the panel for loading the checkout cart if enabled.
+	if (window.serverData.checkoutEnabled) {
+		$('#checkout-cart-panel').show();
+	}
 
 	// Try to retrieve the user's profile information.
 	try {
@@ -698,7 +718,7 @@ let setup = async function () {
 		let wins = profileResponse.Wins;
 		let losses = profileResponse.Losses;
 
-		// Display the fields to the user.
+		// Display the fields to the user if profile display is enabled.
 		let updatedProfileList = $('<ul id="profileInformation" style="list-style-type:circle"></ul>');
 		updatedProfileList.append('<li>Your username: ' + username + '</li>');
 		updatedProfileList.append('<li>Your email: ' + email + '</li>');
@@ -726,9 +746,15 @@ let setup = async function () {
 		});
 	});
 
-	// Periodically refresh the user's inventory.
+	// Periodically refresh this page's content automatically.
 	let updateStatus = async function () {
-		await refreshInventory();
+		if (window.serverData.inventoryEnabled) {
+			await refreshInventory();
+		}
+		await refreshEnjinConnection();
+		if (window.serverData.storeEnabled) {
+			await refreshStoreContent();
+		}
 	};
 	await updateStatus();
 	setInterval(updateStatus, 30000);
