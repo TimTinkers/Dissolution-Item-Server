@@ -801,7 +801,7 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 
 				// This service is unknown.
 				} else {
-					console.error('Unknown service', serviceId);
+					console.error(process.env.UNKNOWN_SERVICE_REQUESTED, serviceId);
 					res.send({ status: 'ERROR', message: process.env.UNKNOWN_SERVICE_REQUESTED });
 					return;
 				}
