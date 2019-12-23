@@ -1,1 +1,25 @@
-# Empty CSS file for your own CSS
+# Dark mode.
+html {
+  color: white;
+  background-color: #181a1b !important;
+}
+
+html, body, input, textarea, select, button, p, h1, h2, h3, h4, h5 {
+  color: white;
+  background-color: #181a1b;
+}
+
+html, body, input, textarea, select, button, p, h1, h2, h3, h4, h5 {
+  color: white;
+  border-color: #575757;
+  color: #e8e6e3;
+}
+
+a {
+  color: #3391ff;
+}
+
+table, tr, td {
+  color: white;
+  border-color: #4c4c4c;
+}
