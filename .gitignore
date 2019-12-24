@@ -1,5 +1,7 @@
 # Ignore environment variables.
 .env
+.kovan-env
+.production-env
 
 # Ignore modules from Node.
 **/node_modules/
