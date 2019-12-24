@@ -149,7 +149,11 @@ let server = app.listen(EXPRESS_PORT, async function () {
 
 				// Attempt to setup a PayPal client.
 				try {
-					PAYPAL_CLIENT = new paypal.core.PayPalHttpClient(new paypal.core.SandboxEnvironment(paypalClientId, paypalSecret));
+					if (process.env.PAYPAL_TESTING === 'true') {
+						PAYPAL_CLIENT = new paypal.core.PayPalHttpClient(new paypal.core.SandboxEnvironment(paypalClientId, paypalSecret));
+					} else {
+						PAYPAL_CLIENT = new paypal.core.PayPalHttpClient(new paypal.core.LiveEnvironment(paypalClientId, paypalSecret));
+					}
 
 				// Verify that we were actually able to get PayPal access.
 				} catch (error) {
@@ -175,7 +179,10 @@ let server = app.listen(EXPRESS_PORT, async function () {
 					let firstPartyPrivateKey = process.env.FIRST_PARTY_PRIVATE_KEY;
 					let contractAddress = process.env.PAYMENT_PROCESSOR_ADDRESS;
 					let abi = process.env.PAYMENT_PROCESSOR_ABI;
-					let provider = ethers.getDefaultProvider(process.env.NETWORK_SUFFIX);
+					let provider = ethers.getDefaultProvider();
+					if (process.env.NETWORK_SUFFIX === 'kovan') {
+						provider = ethers.getDefaultProvider(process.env.NETWORK_SUFFIX);
+					}
 					let wallet = new ethers.Wallet(firstPartyPrivateKey, provider);
 					console.log(util.format(process.env.CONNECTING_TO_CONTRACT, contractAddress, process.env.NETWORK_SUFFIX));
 					PAYMENT_PROCESSOR = new ethers.Contract(contractAddress, abi, wallet);
@@ -326,7 +333,10 @@ async function getDiscount (address) {
 
 	// If the discount is enabled, fetch it from the discount token list.
 	try {
-		let provider = ethers.getDefaultProvider(process.env.NETWORK_SUFFIX);
+		let provider = ethers.getDefaultProvider();
+		if (process.env.NETWORK_SUFFIX === 'kovan') {
+			provider = ethers.getDefaultProvider(process.env.NETWORK_SUFFIX);
+		}
 		let enjinContractAddress = '0x0000000000000000000000000000000000000000';
 		if (process.env.NETWORK_SUFFIX === 'kovan') {
 			enjinContractAddress = process.env.ENJIN_ITEMS_ADDRESS_KOVAN;
@@ -477,11 +487,13 @@ async function sendStatusToClient (client, email, userId, res) {
 
 				// Process and return the user's inventory to the dashboard.
 				let gameInventory = [];
-				let tokens = enjinInventoryResponse.result[0].tokens;
-				for (let i = 0; i < tokens.length; i++) {
-					let token = tokens[i];
-					if (token['app_id'] === parseInt(process.env.GAME_APP_ID) && validEnjinIds.has(token['token_id'])) {
-						gameInventory.push(token);
+				if (enjinInventoryResponse.result.length > 0) {
+					let tokens = enjinInventoryResponse.result[0].tokens;
+					for (let i = 0; i < tokens.length; i++) {
+						let token = tokens[i];
+						if (token['app_id'] === parseInt(process.env.GAME_APP_ID) && validEnjinIds.has(token['token_id'])) {
+							gameInventory.push(token);
+						}
 					}
 				}
 				res.send({ status: 'LINKED', address: userAddress, inventory: gameInventory });
