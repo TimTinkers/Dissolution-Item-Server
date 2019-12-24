@@ -357,6 +357,7 @@ app.get('/', asyncMiddleware(async (req, res, next) => {
 	loginValidator(req, res, function (gameToken, decoded) {
 		res.render('dashboard', {
 			applicationName: APPLICATION,
+			applicationSuffix: process.env.SUFFIX,
 			gameInventoryUri: process.env.GAME_INVENTORY_URI,
 			gameMetadataUri: process.env.GAME_METADATA_URI,
 			gameProfileUri: process.env.GAME_PROFILE_URI,
