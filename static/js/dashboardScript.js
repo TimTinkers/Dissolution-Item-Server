@@ -218,12 +218,12 @@ async function initializeCart (shoppingCart) {
 				checkoutItems[serviceId] = quantity;
 
 				// Manipulate the shopping cart cookie to update the quantity of this chosen service.
-				let shoppingCookie = Cookies.get('shoppingCart');
+				let shoppingCookie = Cookies.get(window.serverData.checkoutCookieName);
 				if (shoppingCookie) {
 					let shoppingCart = JSON.parse(shoppingCookie);
 					if (shoppingCart) {
 						shoppingCart[serviceId] = quantity;
-						Cookies.set('shoppingCart', JSON.stringify(shoppingCart));
+						Cookies.set(window.serverData.checkoutCookieName, JSON.stringify(shoppingCart), { expires: 1, path: '/', domain: window.serverData.checkoutCookieDomain, secure: false, sameSite: 'lax' });
 					}
 				}
 				await refreshCart();
@@ -238,15 +238,15 @@ async function initializeCart (shoppingCart) {
 				delete checkoutItems[serviceId];
 
 				// Manipulate the shopping cart cookie to remove this chosen service.
-				let shoppingCookie = Cookies.get('shoppingCart');
+				let shoppingCookie = Cookies.get(window.serverData.checkoutCookieName);
 				if (shoppingCookie) {
 					let shoppingCart = JSON.parse(shoppingCookie);
 					if (shoppingCart) {
 						delete shoppingCart[serviceId];
 						if (Object.keys(shoppingCart).length === 0) {
-							Cookies.remove('shoppingCart');
+							Cookies.remove(window.serverData.checkoutCookieName, { expires: 1, path: '/', domain: window.serverData.checkoutCookieDomain, secure: false, sameSite: 'lax' });
 						} else {
-							Cookies.set('shoppingCart', JSON.stringify(shoppingCart));
+							Cookies.set(window.serverData.checkoutCookieName, JSON.stringify(shoppingCart), { expires: 1, path: '/', domain: window.serverData.checkoutCookieDomain, secure: false, sameSite: 'lax' });
 						}
 					}
 				}
@@ -513,7 +513,7 @@ async function refreshEnjinConnection () {
 
 		// If the checkout cart is enabled, process changes and display items.
 		if (window.serverData.checkoutEnabled) {
-			let shoppingCookie = Cookies.get('shoppingCart');
+			let shoppingCookie = Cookies.get(window.serverData.checkoutCookieName);
 			if (previousCartContent !== shoppingCookie) {
 				previousCartContent = shoppingCookie;
 				if (shoppingCookie) {
@@ -618,7 +618,7 @@ function preparePayPalButtons () {
 		onApprove: async function (data) {
 			let status = await $.post('/approve', data);
 			if (status === 'OK') {
-				Cookies.remove('shoppingCart');
+				Cookies.remove(window.serverData.checkoutCookieName, { expires: 1, path: '/', domain: window.serverData.checkoutCookieDomain, secure: false, sameSite: 'lax' });
 				checkoutItems = {};
 				await refreshCart();
 				showStatusMessage('Your purchase was received and is now pending!');

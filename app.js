@@ -380,6 +380,8 @@ app.get('/', asyncMiddleware(async (req, res, next) => {
 			hideOutOfStockItems: process.env.HIDE_OUT_OF_STOCK_ITEMS,
 			discountTokenEnabled: process.env.DISCOUNT_TOKEN_ENABLED,
 			checkoutEnabled: process.env.CHECKOUT_ENABLED,
+			checkoutCookieName: process.env.CHECKOUT_COOKIE_NAME,
+			checkoutCookieDomain: process.env.CHECKOUT_COOKIE_DOMAIN,
 			paypalEnabled: process.env.PAYPAL_ENABLED,
 			etherEnabled: process.env.ETHER_ENABLED
 		});
