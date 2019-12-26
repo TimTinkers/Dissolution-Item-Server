@@ -19,6 +19,9 @@ let checkoutItems = {};
 // Debounce refreshing the module interfaces.
 let linkedToEnjin = false;
 
+// Debounce checkout cart content updates.
+let previousCartContent = '';
+
 // A helper function to show an error message on the page.
 function showError (errorMessage) {
 	let errorBox = $('#errorBox');
@@ -506,10 +509,13 @@ async function refreshEnjinConnection () {
 					checkoutItems[serviceId] = amount;
 				});
 			}
+		}
 
-			// If the checkout cart is enabled, process its cookie and display items.
-			if (window.serverData.checkoutEnabled) {
-				let shoppingCookie = Cookies.get('shoppingCart');
+		// If the checkout cart is enabled, process changes and display items.
+		if (window.serverData.checkoutEnabled) {
+			let shoppingCookie = Cookies.get('shoppingCart');
+			if (previousCartContent !== shoppingCookie) {
+				previousCartContent = shoppingCookie;
 				if (shoppingCookie) {
 					let shoppingCart = JSON.parse(shoppingCookie);
 					if (!shoppingCart || Object.keys(shoppingCart).length === 0) {
@@ -520,10 +526,10 @@ async function refreshEnjinConnection () {
 						await initializeCart(shoppingCart);
 					}
 				}
-
-				// Remove the spinner since we've finished loading the cart details.
-				$('#checkout-cart-spinner').remove();
 			}
+
+			// Remove the spinner since we've finished loading the cart details.
+			$('#checkout-cart-spinner').remove();
 		}
 
 	// Otherwise, notify the user that they must link an Enjin address.
