@@ -439,6 +439,7 @@ async function refreshInventory () {
 // Refresh a user's connection to Enjin in order to update the list of this user's Enjin-owned items if they have a valid address.
 async function refreshEnjinConnection () {
 	let connectionData = await $.post('/connect');
+	console.log(connectionData);
 	if (connectionData.status === 'LINKED') {
 		USER_ADDRESS = connectionData.address;
 
