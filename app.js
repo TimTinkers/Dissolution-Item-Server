@@ -638,6 +638,16 @@ app.post('/screen-items', asyncMiddleware(async (req, res, next) => {
 	});
 }));
 
+// A helper function to check if a given string is a valid Ethereum address or not.
+function isAddress (address) {
+	try {
+		ethers.utils.getAddress(address);
+	} catch (error) {
+		return false;
+	}
+	return true;
+};
+
 // Handle a user requesting to complete a purchase.
 app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 	loginValidator(req, res, async function (gameToken, decoded) {
@@ -946,6 +956,10 @@ app.post('/checkout', asyncMiddleware(async (req, res, next) => {
 					serializableAscensionMap[itemId] = ascensionReadyItems.get(itemId);
 				}
 				let purchaser = req.body.purchaser;
+				if (!purchaser || purchaser === 'undefined' || purchaser === '' || !isAddress(purchaser)) {
+					res.send({ status: 'ERROR', message: process.env.ETHER_DISABLED_ERROR });
+					return;
+				}
 				let gamePurchaseDetails = { purchasedItems: confirmedToPurchaseItems, ascendingItems: serializableAscensionMap, purchaser: purchaser };
 
 				// Create an entry in our database for this order.
