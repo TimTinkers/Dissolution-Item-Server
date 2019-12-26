@@ -378,6 +378,7 @@ app.get('/', asyncMiddleware(async (req, res, next) => {
 			ascensionEnabled: process.env.ASCENSION_ENABLED,
 			storeEnabled: process.env.STORE_ENABLED,
 			hideOutOfStockItems: process.env.HIDE_OUT_OF_STOCK_ITEMS,
+			discountTokenMessage: process.env.DISCOUNT_TOKEN_MESSAGE,
 			discountTokenEnabled: process.env.DISCOUNT_TOKEN_ENABLED,
 			checkoutEnabled: process.env.CHECKOUT_ENABLED,
 			checkoutCookieName: process.env.CHECKOUT_COOKIE_NAME,

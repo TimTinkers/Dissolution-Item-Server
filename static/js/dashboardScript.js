@@ -36,6 +36,14 @@ function showStatusMessage (statusMessage) {
 	messageBox.show();
 };
 
+// A helper function to format a string message.
+function formatString (formatString, variables) {
+	for (let i = 0; i < variables.length; i++) {
+		formatString = formatString.replace(`{${i}}`, variables[i]);
+	}
+	return formatString;
+};
+
 // Initialize the shopping cart to begin accepting additional services.
 let fetchedDiscount = false;
 let discountMultiplier = 1.00;
@@ -57,7 +65,8 @@ async function initializeCart (shoppingCart) {
 					if (discountResponse.status === 'SUCCESS') {
 						let discount = discountResponse.discount;
 						discountMultiplier = (1 - (discount / 100.0));
-						$('#checkout-cart-title').html(`Your Checkout Cart; everything is ${discount.toFixed(2)}% off!`);
+						let discountTokenMessage = formatString(window.serverData.discountTokenMessage, [ `${discount.toFixed(2)}%` ]);
+						$('#checkout-cart-title').html(`Your Checkout Cart; ${discountTokenMessage}`);
 
 					// Otherwise, display an error from the server.
 					} else if (discountResponse.status === 'ERROR') {
@@ -818,8 +827,8 @@ window.addEventListener('load', async () => {
 
 		// Otherwise, notify the user of this error.
 		}	else {
-			console.error('Non-Ethereum browser detected. You should consider trying MetaMask!');
-			showError('Non-Ethereum browser detected. You should consider trying MetaMask!');
+			console.error('Non-Ethereum browser detected. Please install MetaMask to pay with ETH.');
+			showError('Non-Ethereum browser detected. Please install MetaMask to pay with ETH.');
 			$('#web3-panel').hide();
 			hasValidWeb3 = false;
 		}
