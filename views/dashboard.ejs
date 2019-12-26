@@ -35,8 +35,20 @@
             This is where we display status messages.
           </div>
 
+          <!-- A panel for displaying Web3 loading information. -->
+          <div id="web3-panel" class="collapse panel panel-default">
+            <div id="web3-title">
+              We are searching for a Web3 provider in your browser. If you don't have one, we recommend installing <a href="https://metamask.io/">MetaMask</a> and refreshing your browser. If you already have MetaMask, sign-in through its prompts to approve this store page.
+            </div>
+            <div id="web3-spinner" class="d-flex justify-content-center">
+              <div class="spinner-border" role="status">
+                <span class="sr-only">Loading...</span>
+              </div>
+            </div>
+          </div>
+
           <!-- A panel for displaying the user's profile information. -->
-          <div id="profile-pabel" class="collapse panel panel-default">
+          <div id="profile-panel" class="collapse panel panel-default">
             <h2>
               Your Profile
             </h2>

@@ -1,5 +1,8 @@
 'use strict';
 
+// Track whether or not Web3 was able to be initialized.
+let hasValidWeb3 = false;
+
 // Store our access token as a constant.
 let GAME_TOKEN;
 let USER_ADDRESS;
@@ -100,7 +103,7 @@ async function initializeCart (shoppingCart) {
 					<div id="paypal-button-container"></div>
 				</td>`;
 			}
-			if (window.serverData.etherEnabled) {
+			if (window.serverData.etherEnabled && hasValidWeb3) {
 				purchaseMethodsContent +=
 				`<td class="col-sm-3">
 					<button id="payWithEther" type="button" class="btn btn-primary">Pay with ETH</button>
@@ -121,7 +124,7 @@ async function initializeCart (shoppingCart) {
 			}
 
 			// If enabled, show the checkout cart's Ether payment button.
-			if (window.serverData.etherEnabled) {
+			if (window.serverData.etherEnabled && hasValidWeb3) {
 				await prepareEtherButton();
 			}
 
@@ -782,6 +785,7 @@ let setup = async function () {
 // If Ether payments are enabled, we must request permission to enable Web3.
 window.addEventListener('load', async () => {
 	if (window.serverData.checkoutEnabled && window.serverData.etherEnabled) {
+		$('#web3-panel').show();
 		if (window.ethereum) {
 			window.web3 = new Web3(window.ethereum);
 
@@ -789,19 +793,29 @@ window.addEventListener('load', async () => {
 			try {
 				await window.ethereum.enable();
 				window.ethereum.autoRefreshOnNetworkChange = false;
+				$('#web3-panel').hide();
+				hasValidWeb3 = true;
+
+			// Otherwise, flag Web3 as unavailable.
 			} catch (error) {
 				console.error(error);
 				showError('Issue with Ethereum detected. You should consider trying MetaMask!');
+				$('#web3-panel').hide();
+				hasValidWeb3 = false;
 			}
 
 		// Otherwise, attempt to use the current Web3 context.
 		}	else if (window.web3) {
 			window.web3 = new Web3(window.web3.currentProvider);
+			$('#web3-panel').hide();
+			hasValidWeb3 = true;
 
 		// Otherwise, notify the user of this error.
 		}	else {
 			console.error('Non-Ethereum browser detected. You should consider trying MetaMask!');
 			showError('Non-Ethereum browser detected. You should consider trying MetaMask!');
+			$('#web3-panel').hide();
+			hasValidWeb3 = false;
 		}
 	}
 
